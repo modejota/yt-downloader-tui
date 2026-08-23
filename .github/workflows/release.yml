@@ -1,0 +1,132 @@
+# Builds standalone binaries for every supported platform and publishes them
+# as a GitHub Release. Triggered by pushing a version tag:
+#
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# Each release archive contains the compiled executable plus the platform's
+# `node-av.node` codec addon, which must stay next to the executable: the
+# bundled node-av loader (patched via patches/node-av@*.patch) looks for it
+# there, because compiled executables cannot embed native addons. The ffmpeg
+# CLI binary is not needed - @mediabunny/server only uses the addon.
+#
+# Cross-compilation happens on a single Linux runner: the app is pure JS at
+# build time (Bun embeds everything, WASM encoders included), and the addons
+# are plain files downloaded per target with `npm pack` (which, unlike
+# `npm install`, never touches the bun-managed node_modules).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies (applies the node-av patch)
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun test
+
+      - name: Download codec addons for every target
+        run: |
+          NODE_AV_VERSION="$(bun -e 'console.log(require("./node_modules/node-av/package.json").version)')"
+          echo "node-av ${NODE_AV_VERSION}"
+          fetch_addon() {
+            local target="$1" pkg="$2"
+            mkdir -p "addons/${target}"
+            local tgz
+            tgz="$(npm pack "${pkg}@${NODE_AV_VERSION}")"
+            tar -xzf "${tgz}" -C "addons/${target}" --strip-components=1 package/node-av.node
+            rm "${tgz}"
+          }
+          fetch_addon windows-x64  "@seydx/node-av-win32-x64-msvc"
+          fetch_addon linux-x64    "@seydx/node-av-linux-x64"
+          fetch_addon linux-arm64  "@seydx/node-av-linux-arm64"
+          fetch_addon darwin-x64   "@seydx/node-av-darwin-x64"
+          fetch_addon darwin-arm64 "@seydx/node-av-darwin-arm64"
+
+      - name: Download OpenTUI native packages for every target
+        run: |
+          # `bun install` only fetches the @opentui/core-<platform> optional
+          # dependency matching the runner (linux-x64, glibc). The compiled
+          # loader branches on process.platform/arch/env.OPENTUI_LIBC, and
+          # Bun's bundler needs every branch's import target resolvable
+          # regardless of --target, so fetch all platform+libc variants the
+          # same way as the codec addons.
+          OPENTUI_VERSION="$(bun -e 'console.log(require("./node_modules/@opentui/core/package.json").version)')"
+          echo "@opentui/core ${OPENTUI_VERSION}"
+          fetch_opentui_pkg() {
+            local pkg="$1"
+            local dir="node_modules/@opentui/${pkg}"
+            [ -d "${dir}" ] && return
+            mkdir -p "${dir}"
+            local tgz
+            tgz="$(npm pack "@opentui/${pkg}@${OPENTUI_VERSION}")"
+            tar -xzf "${tgz}" -C "${dir}" --strip-components=1
+            rm "${tgz}"
+          }
+          fetch_opentui_pkg core-win32-x64
+          fetch_opentui_pkg core-win32-arm64
+          fetch_opentui_pkg core-linux-x64
+          fetch_opentui_pkg core-linux-x64-musl
+          fetch_opentui_pkg core-linux-arm64
+          fetch_opentui_pkg core-linux-arm64-musl
+          fetch_opentui_pkg core-darwin-x64
+          fetch_opentui_pkg core-darwin-arm64
+
+      - name: Build and package all targets
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cat > release-README.txt <<'EOF'
+          yt-downloader-tui
+
+          Keep the executable and node-av.node in the same folder - the app
+          loads its audio codecs from that file at startup. Run the
+          executable from any terminal and follow the on-screen keys:
+          Ctrl+S settings, Ctrl+Q queue, Ctrl+C quit.
+          EOF
+
+          build_one() {
+            local target="$1" bin_name="$2" archive_cmd="$3" archive_file="$4"
+            local dir="release/yt-downloader-tui-v${VERSION}-${target}"
+            mkdir -p "${dir}"
+            bun build --compile --target="bun-${target}" ./src/index.tsx \
+              --outfile "${dir}/${bin_name}"
+            cp "addons/${target}/node-av.node" "${dir}/node-av.node"
+            cp release-README.txt "${dir}/README.txt"
+            chmod +x "${dir}/${bin_name}"
+            (cd release && ${archive_cmd} "${archive_file}" "yt-downloader-tui-v${VERSION}-${target}")
+          }
+
+          build_one windows-x64  "yt-downloader-tui.exe" "zip -qr" "yt-downloader-tui-v${VERSION}-windows-x64.zip"
+          build_one linux-x64    "yt-downloader-tui"     "tar -czf" "yt-downloader-tui-v${VERSION}-linux-x64.tar.gz"
+          build_one linux-arm64  "yt-downloader-tui"     "tar -czf" "yt-downloader-tui-v${VERSION}-linux-arm64.tar.gz"
+          build_one darwin-x64   "yt-downloader-tui"     "tar -czf" "yt-downloader-tui-v${VERSION}-darwin-x64.tar.gz"
+          build_one darwin-arm64 "yt-downloader-tui"     "tar -czf" "yt-downloader-tui-v${VERSION}-darwin-arm64.tar.gz"
+          rm release-README.txt
+
+      - name: Generate checksums
+        run: cd release && sha256sum ./*.zip ./*.tar.gz > SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/*.zip
+            release/*.tar.gz
+            release/SHA256SUMS.txt

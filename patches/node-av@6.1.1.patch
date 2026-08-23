@@ -1,0 +1,33 @@
+diff --git a/dist/lib/binding.js b/dist/lib/binding.js
+index 5c25f1f28fedf6f7bff7edfda14a23c022ead82e..4b470df719c9861a591880eff4350c113d04b2c7 100644
+--- a/dist/lib/binding.js
++++ b/dist/lib/binding.js
+@@ -7,7 +7,7 @@
+ import { existsSync } from 'node:fs';
+ import { createRequire } from 'node:module';
+ import { type } from 'node:os';
+-import { resolve } from 'node:path';
++import { dirname, resolve } from 'node:path';
+ import { getDirname } from '../utils/electron.js';
+ const __dirname = getDirname(import.meta.url);
+ /**
+@@ -20,6 +20,19 @@ const __dirname = getDirname(import.meta.url);
+ function loadBinding() {
+     const require = createRequire(import.meta.url);
+     const errors = [];
++    // Standalone executables (bun build --compile) cannot resolve packages,
++    // but they can require an absolute path — look for the addon shipped
++    // next to the executable (or pointed at via NODE_AV_BINARY).
++    try {
++        const standalonePath = process.env.NODE_AV_BINARY ||
++            resolve(dirname(process.execPath), 'node-av.node');
++        if (existsSync(standalonePath)) {
++            return require(standalonePath);
++        }
++    }
++    catch (err) {
++        errors.push(new Error(`Standalone binary loading failed: ${err}`));
++    }
+     // Detect platform
+     const platform = process.platform;
+     const arch = process.arch;

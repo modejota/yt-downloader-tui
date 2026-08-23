@@ -1,0 +1,55 @@
+{
+  "name": "yt-downloader-tui",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "module": "src/index.tsx",
+  "scripts": {
+    "dev": "bun --watch src/index.tsx",
+    "start": "bun src/index.tsx",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "bun build --compile ./src/index.tsx --outfile dist/yt-downloader-tui",
+    "build:linux-x64": "bun build --compile --target=bun-linux-x64 ./src/index.tsx --outfile dist/yt-downloader-tui-linux-x64",
+    "build:linux-arm64": "bun build --compile --target=bun-linux-arm64 ./src/index.tsx --outfile dist/yt-downloader-tui-linux-arm64",
+    "build:windows-x64": "bun build --compile --target=bun-windows-x64 ./src/index.tsx --outfile dist/yt-downloader-tui-windows-x64.exe",
+    "build:macos-x64": "bun build --compile --target=bun-darwin-x64 ./src/index.tsx --outfile dist/yt-downloader-tui-macos-x64",
+    "build:macos-arm64": "bun build --compile --target=bun-darwin-arm64 ./src/index.tsx --outfile dist/yt-downloader-tui-macos-arm64",
+    "build:all": "bun run build:linux-x64 && bun run build:linux-arm64 && bun run build:windows-x64 && bun run build:macos-x64 && bun run build:macos-arm64"
+  },
+  "dependencies": {
+    "@mediabunny/aac-encoder": "1.55.1",
+    "@mediabunny/flac-encoder": "1.55.1",
+    "@mediabunny/mp3-encoder": "1.55.1",
+    "@mediabunny/server": "1.55.1",
+    "@opentui/core": "0.5.4",
+    "@opentui/react": "0.5.4",
+    "check-disk-space": "3.4.0",
+    "i18next": "26.4.0",
+    "mediabunny": "1.55.1",
+    "react": "19.2.8",
+    "react-i18next": "17.0.12",
+    "valibot": "1.4.2",
+    "youtubei.js": "18.0.0",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "19.2.18",
+    "oxfmt": "0.64.0",
+    "oxlint": "1.79.0"
+  },
+  "peerDependencies": {
+    "typescript": "7.0.2"
+  },
+  "patchedDependencies": {
+    "node-av@6.1.1": "patches/node-av@6.1.1.patch"
+  },
+  "trustedDependencies": [
+    "node-av"
+  ]
+}

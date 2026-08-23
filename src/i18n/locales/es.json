@@ -1,0 +1,185 @@
+{
+  "app": {
+    "title": "yt-downloader-tui",
+    "tagline": "YouTube, directo a tu terminal",
+    "starting": "Iniciando…",
+    "videoEnqueued": "\"{{title}}\" añadido a la cola.",
+    "playlistEnqueued": "{{count}} descargas de \"{{playlistTitle}}\" añadidas a la cola."
+  },
+  "header": {
+    "activeDownloads": "{{count}} descargando",
+    "globalKeys": "^S Ajustes · ^Q Cola · ^C Salir"
+  },
+  "hints": {
+    "move": "Mover",
+    "change": "Cambiar",
+    "confirm": "Confirmar",
+    "back": "Volver",
+    "close": "Cerrar",
+    "toggle": "Marcar / confirmar",
+    "open": "Abrir",
+    "submit": "Enviar",
+    "cancelJob": "Cancelar trabajo"
+  },
+  "home": {
+    "cardTitle": "¿Qué quieres descargar?",
+    "placeholder": "https://youtube.com/watch?v=…  o escribe para buscar",
+    "tipUrl": "Pega un enlace de vídeo o lista de YouTube",
+    "tipSearch": "O escribe palabras y busca en YouTube",
+    "searching": "Buscando…",
+    "noResults": "No se han encontrado resultados.",
+    "genericError": "Algo ha fallado. Inténtalo de nuevo.",
+    "downloadCompleted": "\"{{title}}\" descarga completada.",
+    "downloadFailed": "\"{{title}}\" ha fallado: {{message}}"
+  },
+  "searchResults": {
+    "title": "Resultados de búsqueda",
+    "subtitle": "“{{query}}” · {{count}}",
+    "hint": "Enter abre el resultado resaltado.",
+    "loadMore": "Cargar más resultados…",
+    "loadingMore": "Cargando más resultados…"
+  },
+  "formatSelection": {
+    "title": "Elige tu audio",
+    "loading": "Leyendo pistas de audio disponibles…",
+    "loadError": "No se han podido leer las pistas de audio.",
+    "noFormatsAvailable": "No hay pistas de audio disponibles para este vídeo.",
+    "outputHeading": "Salida",
+    "advancedHeading": "Avanzado",
+    "formatLabel": "Formato",
+    "qualityLabel": "Calidad",
+    "bestQuality": "Máxima",
+    "losslessInfo": "{{format}} es sin pérdida: calidad completa, sin elección de bitrate.",
+    "qualityModeLabel": "Modo",
+    "trimLabel": "Recorte",
+    "trimOff": "No",
+    "trimOn": "Sí",
+    "trimStartLabel": "Inicio (s)",
+    "trimEndLabel": "Fin (s)",
+    "trimPlaceholder": "p. ej. 90",
+    "trimStartNegative": "El inicio del recorte debe ser un número entero de segundos, mayor o igual que cero.",
+    "trimInvalidNumber": "Introduce segundos enteros para el inicio y el fin del recorte.",
+    "trimEndBeforeStart": "El final del recorte debe ser mayor que el inicio.",
+    "continueLabel": "Continuar"
+  },
+  "formatSummary": {
+    "bestAvailable": "La mejor disponible",
+    "formatLabel": "Formato",
+    "qualityLabel": "Calidad",
+    "fileLabel": "Archivo",
+    "sizeLabel": "Tamaño"
+  },
+  "destination": {
+    "title": "Guardar en carpeta",
+    "folderCardTitle": "Carpeta de destino",
+    "checking": "Comprobando la carpeta…",
+    "genericError": "No se ha podido preparar la carpeta de destino."
+  },
+  "playlistItems": {
+    "loading": "Cargando la lista de reproducción…",
+    "loadingMore": "Cargando más entradas…",
+    "loadError": "No se ha podido leer la lista de reproducción.",
+    "counter": "{{selected}} de {{total}} seleccionadas",
+    "moreInPlaylist": "{{count}} en la lista",
+    "selectAll": "Seleccionar todas",
+    "selectNone": "Deseleccionar todas",
+    "loadMore": "Cargar más entradas…",
+    "continueWith": "Continuar con {{count}} seleccionadas",
+    "selectAtLeastOne": "Selecciona al menos una entrada."
+  },
+  "playlistFormat": {
+    "title": "Ajustes de la lista",
+    "modeTitle": "{{count}} entradas seleccionadas",
+    "modeLabel": "Aplicar",
+    "applyToAll": "Los mismos ajustes a todas",
+    "configureIndividually": "Una a una",
+    "continue": "Continuar",
+    "videoProgress": "Vídeo {{index}} de {{count}}",
+    "goingBack": "Volviendo…",
+    "preparingDestination": "Preparando destino…"
+  },
+  "playlistDestination": {
+    "subtitle": "“{{title}}” · {{count}} descargas",
+    "folderCardTitle": "Carpeta de destino",
+    "folderHint": "Los archivos irán a una subcarpeta “{{title}}”, numerados en orden de lista.",
+    "preparing": "Preparando la carpeta y encolando…",
+    "genericError": "No se ha podido preparar la carpeta de destino."
+  },
+  "queueDetail": {
+    "title": "Cola de descargas",
+    "active": "{{count}} activas",
+    "pending": "{{count}} en cola",
+    "completed": "{{count}} completadas",
+    "failed": "{{count}} con error",
+    "empty": "Aún no hay descargas.",
+    "moreHidden": "+{{count}} más"
+  },
+  "queuePanel": {
+    "title": "Descargas ({{count}})"
+  },
+  "jobStatus": {
+    "pending": "En cola",
+    "resolvingFormats": "Resolviendo formatos",
+    "downloading": "Descargando",
+    "packaging": "Empaquetando",
+    "converting": "Convirtiendo",
+    "tagging": "Etiquetando",
+    "completed": "Completada",
+    "cancelled": "Cancelada",
+    "error": "Error: {{message}}"
+  },
+  "videoSummary": {
+    "views": "{{count}} vistas",
+    "likes": "{{count}} likes"
+  },
+  "settings": {
+    "title": "Ajustes",
+    "generalHeading": "General",
+    "defaultsHeading": "Descarga por defecto",
+    "downloadsHeading": "Descargas",
+    "aboutHeading": "Acerca de",
+    "languageLabel": "Idioma",
+    "language": {
+      "system": "Sistema",
+      "en": "Inglés",
+      "es": "Español"
+    },
+    "audio": "Audio",
+    "audioFormatLabel": "Formato audio",
+    "audioBitrateLabel": "Calidad audio",
+    "qualityModeLabel": "Modo audio",
+    "folderLabel": "Carpeta",
+    "folderPlaceholder": "Carpeta de descargas por defecto",
+    "parallelLabel": "Simultáneas",
+    "resultsLabel": "Resultados",
+    "panelLabel": "Panel de cola",
+    "panel": {
+      "bottom": "Abajo",
+      "top": "Arriba",
+      "left": "Izquierda",
+      "right": "Derecha"
+    },
+    "metadataLabel": "Metadata",
+    "yes": "Sí",
+    "no": "No",
+    "best": "Máxima",
+    "legalNoticeLabel": "Ver el aviso legal",
+    "savesAutomatically": "Los cambios se guardan automáticamente."
+  },
+  "legalNotice": {
+    "body": "El uso de esta aplicación es responsabilidad de quien la usa, y está sujeto a los Términos de Servicio de YouTube y a la legislación de derechos de autor aplicable en tu país.",
+    "settingsHint": "Puedes volver a ver este aviso desde Ajustes.",
+    "continueHint": "Pulsa Enter para continuar."
+  },
+  "errors": {
+    "videoUnavailable": "Este vídeo no está disponible (puede ser privado, haber sido eliminado, o no estar accesible en tu región).",
+    "unsupportedSource": "Los directos y las listas \"Mix\" de YouTube no son soportados por ahora.",
+    "network": "No se ha podido conectar. Comprueba tu conexión e inténtalo de nuevo.",
+    "diskSpace": "No hay espacio suficiente en \"{{path}}\" para completar la descarga.",
+    "filesystemPermission": "No se puede escribir en \"{{path}}\"; elige otra carpeta de destino.",
+    "formatUnavailable": "Esa calidad no está disponible para este vídeo.",
+    "formatUnavailableWithFallback": "Esa calidad no está disponible para este vídeo; se ha usado {{usedQuality}} en su lugar.",
+    "conversion": "Algo ha fallado al procesar este vídeo. Puedes reintentarlo o probarlo más tarde.",
+    "unknown": "Algo ha fallado al procesar este vídeo. Puedes reintentarlo o probarlo más tarde."
+  }
+}

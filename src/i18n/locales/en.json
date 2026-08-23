@@ -1,0 +1,185 @@
+{
+  "app": {
+    "title": "yt-downloader-tui",
+    "tagline": "YouTube, delivered to your terminal",
+    "starting": "Starting…",
+    "videoEnqueued": "\"{{title}}\" added to the queue.",
+    "playlistEnqueued": "{{count}} downloads from \"{{playlistTitle}}\" added to the queue."
+  },
+  "header": {
+    "activeDownloads": "{{count}} downloading",
+    "globalKeys": "^S Settings · ^Q Queue · ^C Exit"
+  },
+  "hints": {
+    "move": "Move",
+    "change": "Change",
+    "confirm": "Confirm",
+    "back": "Back",
+    "close": "Close",
+    "toggle": "Toggle / confirm",
+    "open": "Open",
+    "submit": "Submit",
+    "cancelJob": "Cancel job"
+  },
+  "home": {
+    "cardTitle": "What do you want to download?",
+    "placeholder": "https://youtube.com/watch?v=…  or type to search",
+    "tipUrl": "Paste a YouTube video or playlist URL",
+    "tipSearch": "Or type words and search YouTube",
+    "searching": "Searching…",
+    "noResults": "No results found.",
+    "genericError": "Something went wrong. Try again.",
+    "downloadCompleted": "\"{{title}}\" finished downloading.",
+    "downloadFailed": "\"{{title}}\" failed: {{message}}"
+  },
+  "searchResults": {
+    "title": "Search results",
+    "subtitle": "“{{query}}” · {{count}} found",
+    "hint": "Enter opens the highlighted result.",
+    "loadMore": "Load more results…",
+    "loadingMore": "Loading more results…"
+  },
+  "formatSelection": {
+    "title": "Choose your audio",
+    "loading": "Reading available audio tracks…",
+    "loadError": "Could not read the available audio tracks.",
+    "noFormatsAvailable": "No audio tracks are available for this video.",
+    "outputHeading": "Output",
+    "advancedHeading": "Advanced",
+    "formatLabel": "Format",
+    "qualityLabel": "Quality",
+    "bestQuality": "Best",
+    "losslessInfo": "{{format}} is lossless — full quality, no bitrate choice.",
+    "qualityModeLabel": "Mode",
+    "trimLabel": "Trim",
+    "trimOff": "Off",
+    "trimOn": "Custom",
+    "trimStartLabel": "Start (s)",
+    "trimEndLabel": "End (s)",
+    "trimPlaceholder": "e.g. 90",
+    "trimStartNegative": "The trim start must be a whole number of seconds, zero or more.",
+    "trimInvalidNumber": "Enter whole seconds for the trim start and end.",
+    "trimEndBeforeStart": "The trim end must be greater than the start.",
+    "continueLabel": "Continue"
+  },
+  "formatSummary": {
+    "bestAvailable": "Best available",
+    "formatLabel": "Format",
+    "qualityLabel": "Quality",
+    "fileLabel": "File",
+    "sizeLabel": "Size"
+  },
+  "destination": {
+    "title": "Save to folder",
+    "folderCardTitle": "Destination folder",
+    "checking": "Checking the folder…",
+    "genericError": "Could not prepare the destination folder."
+  },
+  "playlistItems": {
+    "loading": "Loading the playlist…",
+    "loadingMore": "Loading more entries…",
+    "loadError": "Could not read the playlist.",
+    "counter": "{{selected}} of {{total}} selected",
+    "moreInPlaylist": "{{count}} in playlist",
+    "selectAll": "Select all",
+    "selectNone": "Select none",
+    "loadMore": "Load more entries…",
+    "continueWith": "Continue with {{count}} selected",
+    "selectAtLeastOne": "Select at least one entry."
+  },
+  "playlistFormat": {
+    "title": "Playlist settings",
+    "modeTitle": "{{count}} entries selected",
+    "modeLabel": "Apply",
+    "applyToAll": "Same settings to all",
+    "configureIndividually": "One by one",
+    "continue": "Continue",
+    "videoProgress": "Video {{index}} of {{count}}",
+    "goingBack": "Going back…",
+    "preparingDestination": "Preparing destination…"
+  },
+  "playlistDestination": {
+    "subtitle": "“{{title}}” · {{count}} downloads",
+    "folderCardTitle": "Destination folder",
+    "folderHint": "Files land in a “{{title}}” subfolder, numbered in playlist order.",
+    "preparing": "Preparing the folder and queueing…",
+    "genericError": "Could not prepare the destination folder."
+  },
+  "queueDetail": {
+    "title": "Download queue",
+    "active": "{{count}} active",
+    "pending": "{{count}} queued",
+    "completed": "{{count}} completed",
+    "failed": "{{count}} failed",
+    "empty": "No downloads yet.",
+    "moreHidden": "+{{count}} more"
+  },
+  "queuePanel": {
+    "title": "Downloads ({{count}})"
+  },
+  "jobStatus": {
+    "pending": "Queued",
+    "resolvingFormats": "Resolving formats",
+    "downloading": "Downloading",
+    "packaging": "Packaging",
+    "converting": "Converting",
+    "tagging": "Tagging",
+    "completed": "Completed",
+    "cancelled": "Cancelled",
+    "error": "Error: {{message}}"
+  },
+  "videoSummary": {
+    "views": "{{count}} views",
+    "likes": "{{count}} likes"
+  },
+  "settings": {
+    "title": "Settings",
+    "generalHeading": "General",
+    "defaultsHeading": "Default download",
+    "downloadsHeading": "Downloads",
+    "aboutHeading": "About",
+    "languageLabel": "Language",
+    "language": {
+      "system": "System",
+      "en": "English",
+      "es": "Spanish"
+    },
+    "audio": "Audio",
+    "audioFormatLabel": "Audio format",
+    "audioBitrateLabel": "Audio quality",
+    "qualityModeLabel": "Audio mode",
+    "folderLabel": "Folder",
+    "folderPlaceholder": "Default downloads folder",
+    "parallelLabel": "Parallel",
+    "resultsLabel": "Results",
+    "panelLabel": "Queue panel",
+    "panel": {
+      "bottom": "Bottom",
+      "top": "Top",
+      "left": "Left",
+      "right": "Right"
+    },
+    "metadataLabel": "Metadata",
+    "yes": "Yes",
+    "no": "No",
+    "best": "Best",
+    "legalNoticeLabel": "View the legal notice",
+    "savesAutomatically": "Changes save automatically."
+  },
+  "legalNotice": {
+    "body": "Using this application is the responsibility of whoever uses it, and is subject to YouTube's Terms of Service and the copyright law applicable in your country.",
+    "settingsHint": "You can see this notice again from Settings.",
+    "continueHint": "Press Enter to continue."
+  },
+  "errors": {
+    "videoUnavailable": "This video isn't available (it may be private, deleted, or not accessible in your region).",
+    "unsupportedSource": "Live streams and YouTube \"Mix\" playlists aren't supported yet.",
+    "network": "Couldn't connect. Check your connection and try again.",
+    "diskSpace": "Not enough space in \"{{path}}\" to complete the download.",
+    "filesystemPermission": "Can't write to \"{{path}}\"; choose another destination folder.",
+    "formatUnavailable": "That quality isn't available for this video.",
+    "formatUnavailableWithFallback": "That quality isn't available for this video; used {{usedQuality}} instead.",
+    "conversion": "Something went wrong processing this video. You can retry it or try again later.",
+    "unknown": "Something went wrong processing this video. You can retry it or try again later."
+  }
+}
