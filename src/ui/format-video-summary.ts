@@ -16,7 +16,8 @@ export function formatCount(count: number): string {
   return `${count}`;
 }
 
-export function formatVideoSummary(video: Video): string {
+/** The facts shown under a video's title: channel, duration, views and (when known) likes. */
+export function videoSummary(video: Video): string[] {
   const parts = [
     video.channelName,
     formatDuration(video.durationSeconds),
@@ -25,7 +26,7 @@ export function formatVideoSummary(video: Video): string {
   if (video.likeCount !== undefined) {
     parts.push(i18n.t("videoSummary.likes", { count: formatCount(video.likeCount) }));
   }
-  return parts.join(" · ");
+  return parts;
 }
 
 /** Playlist entries only carry title/channel/duration, no view/like counts. */

@@ -36,7 +36,7 @@ export function isJobActive(state: DownloadJobState): boolean {
   );
 }
 
-/** A job that can still be cancelled — any state but `completed`. */
+/** A job that can still be cancelled — any state but `completed` or `cancelled`. */
 export function isJobCancelable(state: DownloadJobState): boolean {
   return state.status !== "completed" && state.status !== "cancelled";
 }

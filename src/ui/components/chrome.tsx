@@ -1,13 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { palette } from "@/ui/theme";
@@ -19,36 +10,21 @@ export type KeyHint = {
   readonly label: string;
 };
 
-type HintRegistrar = { readonly register: (hints: readonly KeyHint[]) => void };
+type RegisterHints = (hints: readonly KeyHint[]) => void;
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-const HintContext = createContext<HintRegistrar | undefined>(undefined);
-
-function serializeHints(hints: readonly KeyHint[]): string {
-  return hints.map((hint) => `${hint.keys}\u0000${hint.label}`).join("\u0001");
-}
+const HintContext = createContext<RegisterHints | undefined>(undefined);
 
 export function AppFrame({ children }: { readonly children: ReactNode }) {
-  const [hintState, setHintState] = useState<
-    { readonly serialized: string; readonly hints: readonly KeyHint[] } | undefined
-  >(undefined);
-
-  const register = useCallback((hints: readonly KeyHint[]) => {
-    const serialized = serializeHints(hints);
-    setHintState((current) =>
-      current?.serialized === serialized ? current : { serialized, hints },
-    );
-  }, []);
-
-  const hintRegistrar = useMemo(() => ({ register }), [register]);
+  const [hints, setHints] = useState<readonly KeyHint[] | undefined>(undefined);
 
   return (
-    <HintContext.Provider value={hintRegistrar}>
+    <HintContext.Provider value={setHints}>
       <box style={{ flexDirection: "column", flexGrow: 1, backgroundColor: palette.bg }}>
         <BrandBand />
         <box style={{ flexDirection: "column", flexGrow: 1 }}>{children}</box>
-        <StatusBar hints={hintState?.hints} />
+        <StatusBar hints={hints} />
       </box>
     </HintContext.Provider>
   );
@@ -126,20 +102,16 @@ function StatusBar({ hints }: { readonly hints: readonly KeyHint[] | undefined }
 
 /** Claims the status bar for as long as the calling screen is mounted. */
 export function useScreenHints(hints: readonly KeyHint[]): void {
-  const context = useContext(HintContext);
-  if (context === undefined) {
+  const registerHints = useContext(HintContext);
+  if (registerHints === undefined) {
     throw new Error("useScreenHints() called outside <AppFrame>.");
   }
-  const hintsRef = useRef(hints);
+  // `hints` is a fresh array every render; its serialized content is the stable effect key.
+  const serialized = JSON.stringify(hints);
   useEffect(() => {
-    hintsRef.current = hints;
-  });
-  const serialized = serializeHints(hints);
-  useEffect(() => {
-    context.register(hintsRef.current);
-    return () => context.register([]);
-    // `hints` is a fresh array every render; `serialized` is its stable content key.
-  }, [serialized, context]);
+    registerHints(hints);
+    return () => registerHints([]);
+  }, [serialized, registerHints]);
 }
 
 export function Screen({
@@ -172,11 +144,9 @@ export function Screen({
 export function Card({
   title,
   children,
-  borderColor,
 }: {
   readonly title?: string;
   readonly children: ReactNode;
-  readonly borderColor?: string;
 }) {
   return (
     <box
@@ -185,7 +155,7 @@ export function Card({
       titleColor={palette.accent}
       style={{
         borderStyle: "rounded",
-        borderColor: borderColor ?? palette.border,
+        borderColor: palette.border,
         backgroundColor: palette.surface,
         flexDirection: "column",
         padding: 1,
@@ -209,6 +179,16 @@ export function Spinner({ label }: { readonly label: string }) {
     <text>
       <span fg={palette.gold}>{SPINNER_FRAMES[frame % SPINNER_FRAMES.length]}</span>
       <span fg={palette.dim}> {label}</span>
+    </text>
+  );
+}
+
+/** A failure the user can act on, shown in place — never a stack trace. */
+export function ErrorLine({ message }: { readonly message: string }) {
+  return (
+    <text>
+      <span fg={palette.red}>✕ </span>
+      <span fg={palette.red}>{message}</span>
     </text>
   );
 }

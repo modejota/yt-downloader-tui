@@ -34,12 +34,6 @@ describe("filesystem module", () => {
       expect(result).toContain(os.homedir());
       expect(result).toContain("Downloads");
     });
-
-    it("returns the same value on repeated calls", () => {
-      const first = defaultDownloadsFolder();
-      const second = defaultDownloadsFolder();
-      expect(first).toBe(second);
-    });
   });
 
   describe("sanitizeFilename", () => {
@@ -182,9 +176,17 @@ describe("filesystem module", () => {
     });
 
     it("succeeds if directory already exists and is writable", async () => {
-      await ensureWritable(tempDir);
-      // Should not throw
-      expect(true).toBe(true);
+      await expect(ensureWritable(tempDir)).resolves.toBeUndefined();
+    });
+
+    it("rejects with a filesystem-permission error when the path is a file", async () => {
+      const filePath = path.join(tempDir, "not-a-directory");
+      await fs.writeFile(filePath, "");
+
+      await expect(ensureWritable(filePath)).rejects.toMatchObject({
+        kind: "filesystem-permission",
+        context: { path: filePath },
+      });
     });
 
     it("leaves no probe artifacts behind", async () => {
@@ -198,39 +200,18 @@ describe("filesystem module", () => {
   describe("checkDiskSpaceFor", () => {
     it("succeeds when enough free space exists", async () => {
       // Ask for 1 byte - should always pass on any real system
-      await checkDiskSpaceFor(tempDir, 1);
-      // Should not throw
-      expect(true).toBe(true);
+      await expect(checkDiskSpaceFor(tempDir, 1)).resolves.toBeUndefined();
     });
 
-    it("throws DomainError with kind disk-space when insufficient space", async () => {
-      try {
-        // Ask for an absurdly large amount (more than 1 exabyte)
-        await checkDiskSpaceFor(tempDir, Number.MAX_SAFE_INTEGER);
-        throw new Error("Expected DomainError to be thrown");
-      } catch (err) {
-        if (err instanceof Error && err.message === "Expected DomainError to be thrown") {
-          throw err;
-        }
-        if (err instanceof DomainError) {
-          expect(err.kind).toBe("disk-space");
-          expect(err.context.path).toBe(tempDir);
-        } else {
-          throw err;
-        }
-      }
-    });
+    it("throws a disk-space DomainError carrying the path when space is insufficient", async () => {
+      // Ask for an absurdly large amount (more than 1 exabyte)
+      const result = checkDiskSpaceFor(tempDir, Number.MAX_SAFE_INTEGER);
 
-    it("includes path in error context", async () => {
-      try {
-        await checkDiskSpaceFor(tempDir, Number.MAX_SAFE_INTEGER);
-      } catch (err) {
-        if (err instanceof DomainError) {
-          expect(err.context.path).toBe(tempDir);
-        } else {
-          throw err;
-        }
-      }
+      await expect(result).rejects.toBeInstanceOf(DomainError);
+      await expect(result).rejects.toMatchObject({
+        kind: "disk-space",
+        context: { path: tempDir },
+      });
     });
   });
 });

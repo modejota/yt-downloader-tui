@@ -13,9 +13,8 @@ const originalConsoleError = console.error;
 console.error = (...args: unknown[]) => {
   const [message, subject] = args;
   const isKnownRootActWarning =
-    typeof message === "string" &&
-    message.includes("An update to %s inside a test was not wrapped in act(...)") &&
-    subject === "Root";
+    subject === "Root" &&
+    String(message).includes("An update to %s inside a test was not wrapped in act(...)");
   if (isKnownRootActWarning) return;
   originalConsoleError(...args);
 };

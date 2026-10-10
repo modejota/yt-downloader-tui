@@ -4,7 +4,9 @@
     "tagline": "YouTube, delivered to your terminal",
     "starting": "Starting…",
     "videoEnqueued": "\"{{title}}\" added to the queue.",
-    "playlistEnqueued": "{{count}} downloads from \"{{playlistTitle}}\" added to the queue."
+    "playlistEnqueued": "{{count}} downloads from \"{{playlistTitle}}\" added to the queue.",
+    "unexpectedError": "Something unexpected went wrong.",
+    "unexpectedErrorHint": "Your queued downloads keep running. Press Enter to start over."
   },
   "header": {
     "activeDownloads": "{{count}} downloading",
@@ -19,7 +21,8 @@
     "toggle": "Toggle / confirm",
     "open": "Open",
     "submit": "Submit",
-    "cancelJob": "Cancel job"
+    "cancelJob": "Cancel job",
+    "restart": "Start over"
   },
   "home": {
     "cardTitle": "What do you want to download?",
@@ -94,9 +97,7 @@
     "applyToAll": "Same settings to all",
     "configureIndividually": "One by one",
     "continue": "Continue",
-    "videoProgress": "Video {{index}} of {{count}}",
-    "goingBack": "Going back…",
-    "preparingDestination": "Preparing destination…"
+    "videoProgress": "Video {{index}} of {{count}}"
   },
   "playlistDestination": {
     "subtitle": "“{{title}}” · {{count}} downloads",
@@ -178,7 +179,6 @@
     "diskSpace": "Not enough space in \"{{path}}\" to complete the download.",
     "filesystemPermission": "Can't write to \"{{path}}\"; choose another destination folder.",
     "formatUnavailable": "That quality isn't available for this video.",
-    "formatUnavailableWithFallback": "That quality isn't available for this video; used {{usedQuality}} instead.",
     "conversion": "Something went wrong processing this video. You can retry it or try again later.",
     "unknown": "Something went wrong processing this video. You can retry it or try again later."
   }

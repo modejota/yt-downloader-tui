@@ -13,6 +13,7 @@ import { ServicesProvider, useServices, type Services } from "@/ui/services-cont
 import { connectQueueStore } from "@/ui/queue-store";
 import { AppFrame, Spinner } from "@/ui/components/chrome";
 import { QueuePanel } from "@/ui/components/queue-panel";
+import { ErrorBoundary } from "@/ui/components/error-boundary";
 import { HomeScreen } from "@/ui/screens/home-screen";
 import { SearchResultsScreen } from "@/ui/screens/search-results-screen";
 import { FormatSelectionScreen } from "@/ui/screens/format-selection-screen";
@@ -30,30 +31,29 @@ export function App() {
   const [services, setServices] = useState<Services | undefined>(undefined);
 
   useEffect(() => {
-    Promise.all([loadDefaults(), createYoutubeExtractionService()]).then(
-      async ([defaults, extraction]) => {
-        await applyLanguage(defaults.language);
-        const mediaPipeline = createMediaPipeline();
-        const downloadQueue = createDownloadQueue({
-          extraction,
-          mediaPipeline,
-          maxConcurrentDownloads: defaults.maxConcurrentDownloads,
-        });
-        connectQueueStore(downloadQueue);
-        setServices({
-          defaults,
-          extraction,
-          mediaPipeline,
-          downloadQueue,
-          updateDefaults: (updated) => {
-            void applyLanguage(updated.language);
-            setServices((current) =>
-              current === undefined ? current : { ...current, defaults: updated },
-            );
-          },
-        });
-      },
-    );
+    loadDefaults().then(async (defaults) => {
+      await applyLanguage(defaults.language);
+      const extraction = createYoutubeExtractionService();
+      const mediaPipeline = createMediaPipeline();
+      const downloadQueue = createDownloadQueue({
+        extraction,
+        mediaPipeline,
+        maxConcurrentDownloads: defaults.maxConcurrentDownloads,
+      });
+      connectQueueStore(downloadQueue);
+      setServices({
+        defaults,
+        extraction,
+        mediaPipeline,
+        downloadQueue,
+        updateDefaults: (updated) => {
+          void applyLanguage(updated.language);
+          setServices((current) =>
+            current === undefined ? current : { ...current, defaults: updated },
+          );
+        },
+      });
+    });
   }, []);
 
   return (
@@ -62,7 +62,9 @@ export function App() {
         <StartingUp />
       ) : (
         <ServicesProvider services={services}>
-          <Onboarding />
+          <ErrorBoundary>
+            <Onboarding />
+          </ErrorBoundary>
         </ServicesProvider>
       )}
     </AppFrame>
@@ -220,7 +222,12 @@ export function Flow() {
       <PlaylistFormatFlow
         videos={flow.videos}
         onConfirm={(pairs) =>
-          setFlow({ screen: "playlist-destination", playlist: flow.playlist, pairs })
+          setFlow({
+            screen: "playlist-destination",
+            playlist: flow.playlist,
+            videos: flow.videos,
+            pairs,
+          })
         }
         onBack={() => setFlow({ screen: "playlist-items", playlist: flow.playlist })}
       />
@@ -238,11 +245,7 @@ export function Flow() {
         })
       }
       onBack={() =>
-        setFlow({
-          screen: "playlist-format",
-          playlist: flow.playlist,
-          videos: flow.pairs.map((pair) => pair.video),
-        })
+        setFlow({ screen: "playlist-format", playlist: flow.playlist, videos: flow.videos })
       }
     />
   );

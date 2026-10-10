@@ -4,7 +4,9 @@
     "tagline": "YouTube, directo a tu terminal",
     "starting": "Iniciando…",
     "videoEnqueued": "\"{{title}}\" añadido a la cola.",
-    "playlistEnqueued": "{{count}} descargas de \"{{playlistTitle}}\" añadidas a la cola."
+    "playlistEnqueued": "{{count}} descargas de \"{{playlistTitle}}\" añadidas a la cola.",
+    "unexpectedError": "Algo salió mal de forma inesperada.",
+    "unexpectedErrorHint": "Tus descargas en cola siguen en marcha. Pulsa Enter para volver a empezar."
   },
   "header": {
     "activeDownloads": "{{count}} descargando",
@@ -19,7 +21,8 @@
     "toggle": "Marcar / confirmar",
     "open": "Abrir",
     "submit": "Enviar",
-    "cancelJob": "Cancelar trabajo"
+    "cancelJob": "Cancelar trabajo",
+    "restart": "Volver a empezar"
   },
   "home": {
     "cardTitle": "¿Qué quieres descargar?",
@@ -94,9 +97,7 @@
     "applyToAll": "Los mismos ajustes a todas",
     "configureIndividually": "Una a una",
     "continue": "Continuar",
-    "videoProgress": "Vídeo {{index}} de {{count}}",
-    "goingBack": "Volviendo…",
-    "preparingDestination": "Preparando destino…"
+    "videoProgress": "Vídeo {{index}} de {{count}}"
   },
   "playlistDestination": {
     "subtitle": "“{{title}}” · {{count}} descargas",
@@ -178,7 +179,6 @@
     "diskSpace": "No hay espacio suficiente en \"{{path}}\" para completar la descarga.",
     "filesystemPermission": "No se puede escribir en \"{{path}}\"; elige otra carpeta de destino.",
     "formatUnavailable": "Esa calidad no está disponible para este vídeo.",
-    "formatUnavailableWithFallback": "Esa calidad no está disponible para este vídeo; se ha usado {{usedQuality}} en su lugar.",
     "conversion": "Algo ha fallado al procesar este vídeo. Puedes reintentarlo o probarlo más tarde.",
     "unknown": "Algo ha fallado al procesar este vídeo. Puedes reintentarlo o probarlo más tarde."
   }

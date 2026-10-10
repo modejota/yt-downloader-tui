@@ -4,8 +4,6 @@ import { useTranslation } from "react-i18next";
 
 import type { FormatCandidate, MediaSelection, Video } from "@/domain/media";
 import type { Destination } from "@/domain/queue";
-import { DomainError } from "@/errors/domain-error";
-import { toHumanMessage } from "@/errors/human-message";
 import {
   checkDiskSpaceFor,
   ensureWritable,
@@ -14,9 +12,10 @@ import {
 } from "@/filesystem/index";
 import { outputExtension } from "@/ui/format-options";
 import { estimateBytes, mediaDetails } from "@/ui/format-summary";
-import { formatVideoSummary } from "@/ui/format-video-summary";
-import { palette, inputStyle } from "@/ui/theme";
-import { Card, Screen, Spinner } from "@/ui/components/chrome";
+import { videoSummary } from "@/ui/format-video-summary";
+import { inputStyle } from "@/ui/theme";
+import { Card, ErrorLine, Screen, Spinner } from "@/ui/components/chrome";
+import { failureMessage } from "@/errors/human-message";
 import { MediaCard } from "@/ui/components/media-card";
 import { onSubmitString } from "@/ui/opentui-input-fix";
 import { useServices } from "@/ui/services-context";
@@ -56,9 +55,7 @@ export function DestinationScreen({ video, candidates, selection, onConfirm, onB
       );
       onConfirm(destination);
     } catch (cause) {
-      const message =
-        cause instanceof DomainError ? toHumanMessage(cause) : t("destination.genericError");
-      setStatus({ kind: "error", message });
+      setStatus({ kind: "error", message: failureMessage(cause, t("destination.genericError")) });
     }
   }
 
@@ -72,7 +69,7 @@ export function DestinationScreen({ video, candidates, selection, onConfirm, onB
     >
       <MediaCard
         title={video.title}
-        meta={formatVideoSummary(video).split(" · ")}
+        meta={videoSummary(video)}
         details={mediaDetails(video.title, selection, estimateBytes(candidates))}
       />
       <Card title={t("destination.folderCardTitle")}>
@@ -85,12 +82,7 @@ export function DestinationScreen({ video, candidates, selection, onConfirm, onB
         />
       </Card>
       {status.kind === "busy" ? <Spinner label={t("destination.checking")} /> : undefined}
-      {status.kind === "error" ? (
-        <text>
-          <span fg={palette.red}>✕ </span>
-          <span fg={palette.red}>{status.message}</span>
-        </text>
-      ) : undefined}
+      {status.kind === "error" ? <ErrorLine message={status.message} /> : undefined}
     </Screen>
   );
 }

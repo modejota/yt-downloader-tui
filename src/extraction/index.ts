@@ -1,6 +1,6 @@
 import vm from "node:vm";
 
-import { Innertube, Platform, YTNodes } from "youtubei.js";
+import { Innertube, Log, Platform, YTNodes } from "youtubei.js";
 
 import type { ExtractionService, PlaylistPage, ResolvedSource, SearchPage } from "@/domain/ports";
 import type { FormatCandidate, PlaylistId, Video, VideoId } from "@/domain/media";
@@ -16,6 +16,10 @@ import {
 } from "@/extraction/mapping";
 
 const MAX_SEARCH_CONTINUATION_PAGES = 10;
+const UNSUPPORTED_SOURCE_MESSAGE =
+  "YouTube live streams and 'Mix' playlists are not supported yet.";
+const VIDEO_UNAVAILABLE_MESSAGE =
+  "This video is not available (it may be private, deleted, or unavailable in your region).";
 
 /** Rewrites youtubei.js exceptions into DomainErrors for the rest of the app. */
 function toDomainError(cause: unknown, context: Readonly<Record<string, string>>): DomainError {
@@ -23,6 +27,7 @@ function toDomainError(cause: unknown, context: Readonly<Record<string, string>>
 
   const message = cause instanceof Error ? cause.message : String(cause);
 
+  // Bun's fetch reports connection failures as a TypeError carrying a `code`.
   if (cause instanceof TypeError || /status code 5\d\d/u.test(message)) {
     return new DomainError(
       "network",
@@ -34,11 +39,7 @@ function toDomainError(cause: unknown, context: Readonly<Record<string, string>>
   if (
     /unavailable|private|removed|deleted|unviewable|age.?restrict|status code 4\d\d/iu.test(message)
   ) {
-    return new DomainError(
-      "video-unavailable",
-      "This video is not available (it may be private, deleted, or unavailable in your region).",
-      context,
-    );
+    return new DomainError("video-unavailable", VIDEO_UNAVAILABLE_MESSAGE, context);
   }
 
   return new DomainError(
@@ -59,111 +60,100 @@ function installJavascriptEvaluator(): void {
   };
 }
 
-export async function createYoutubeExtractionService(): Promise<ExtractionService> {
+/**
+ * youtubei.js pages continue from the live response object, so the opaque page tokens handed to
+ * the UI map back to the stored response. Each token is single-use.
+ */
+function createContinuationStore<Page>(expiredMessage: string) {
+  const pages = new Map<string, Page>();
+  let sequence = 0;
+
+  return {
+    store(page: Page): string {
+      const token = `${sequence}`;
+      sequence += 1;
+      pages.set(token, page);
+      return token;
+    },
+    take(token: string): Page {
+      const page = pages.get(token);
+      pages.delete(token);
+      if (page === undefined)
+        throw new DomainError("unknown", expiredMessage, { pageToken: token });
+      return page;
+    },
+  };
+}
+
+type PlaylistResponse = Awaited<ReturnType<Innertube["getPlaylist"]>>;
+type SearchResponse = Awaited<ReturnType<Innertube["search"]>>;
+
+export function createYoutubeExtractionService(): ExtractionService {
   installJavascriptEvaluator();
-  const client = await Innertube.create();
+  // youtubei.js reports parser drift (YouTube shipping new node types) as multi-page warnings with
+  // stack traces; they are for its maintainers, and real failures still reach us as exceptions.
+  Log.setLevel(Log.Level.NONE);
 
-  const playlistContinuations = new Map<string, Awaited<ReturnType<typeof client.getPlaylist>>>();
-  const searchContinuations = new Map<
-    string,
-    { page: Awaited<ReturnType<typeof client.search>>; consumed: number }
-  >();
-  let continuationSequence = 0;
-
-  function storePlaylistContinuation(page: Awaited<ReturnType<typeof client.getPlaylist>>): string {
-    const token = `${continuationSequence}`;
-    continuationSequence += 1;
-    playlistContinuations.set(token, page);
-    return token;
+  // The session is created lazily (warmed up right away) so the app starts offline and a failed
+  // session surfaces as a request error, then gets recreated by the next request.
+  let pendingClient: Promise<Innertube> | undefined;
+  function getClient(): Promise<Innertube> {
+    pendingClient ??= Innertube.create().catch((cause: unknown) => {
+      pendingClient = undefined;
+      throw cause;
+    });
+    return pendingClient;
   }
+  getClient().catch(() => undefined);
 
-  function takePlaylistContinuation(
-    token: string,
-  ): Promise<Awaited<ReturnType<typeof client.getPlaylist>>> {
-    const page = playlistContinuations.get(token);
-    playlistContinuations.delete(token);
-    if (page === undefined) {
-      throw new DomainError("unknown", "This playlist page is no longer available; reopen it.", {
-        pageToken: token,
-      });
+  const playlistContinuations = createContinuationStore<PlaylistResponse>(
+    "This playlist page is no longer available; reopen it.",
+  );
+  const searchContinuations = createContinuationStore<{ page: SearchResponse; consumed: number }>(
+    "This results page is no longer available; repeat the search.",
+  );
+
+  async function resolvePlaylist(playlistId: PlaylistId): Promise<ResolvedSource> {
+    if (isMixPlaylistId(playlistId)) {
+      throw new DomainError("unsupported-source", UNSUPPORTED_SOURCE_MESSAGE, { playlistId });
     }
-    return page.getContinuation();
-  }
-
-  function storeSearchContinuation(
-    page: Awaited<ReturnType<typeof client.search>>,
-    consumed: number,
-  ): string {
-    const token = `${continuationSequence}`;
-    continuationSequence += 1;
-    searchContinuations.set(token, { page, consumed });
-    return token;
-  }
-
-  function takeSearchContinuation(token: string): {
-    page: Awaited<ReturnType<typeof client.search>>;
-    consumed: number;
-  } {
-    const entry = searchContinuations.get(token);
-    searchContinuations.delete(token);
-    if (entry === undefined) {
-      throw new DomainError(
-        "unknown",
-        "This results page is no longer available; repeat the search.",
-        {
-          pageToken: token,
-        },
-      );
+    try {
+      const raw = await (await getClient()).getPlaylist(playlistId);
+      return { kind: "playlist", playlist: mapPlaylistInfo(raw.info, playlistId) };
+    } catch (cause) {
+      throw toDomainError(cause, { playlistId });
     }
-    return entry;
+  }
+
+  async function resolveVideo(videoId: VideoId): Promise<ResolvedSource> {
+    try {
+      const raw = await (await getClient()).getInfo(videoId);
+      if (raw.basic_info.is_live === true) {
+        throw new DomainError("unsupported-source", UNSUPPORTED_SOURCE_MESSAGE, { videoId });
+      }
+      const status = raw.playability_status?.status;
+      if (status !== "OK") {
+        throw new DomainError("video-unavailable", VIDEO_UNAVAILABLE_MESSAGE, {
+          videoId,
+          status: status ?? "unknown",
+        });
+      }
+      return { kind: "video", video: mapBasicVideoInfo(raw.basic_info, videoId) };
+    } catch (cause) {
+      throw toDomainError(cause, { videoId });
+    }
   }
 
   async function resolveSource(input: string, signal: AbortSignal): Promise<ResolvedSource> {
     signal.throwIfAborted();
 
-    const parsed = parseYoutubeSourceUrl(input);
-    if (parsed === undefined) {
+    const source = parseYoutubeSourceUrl(input);
+    if (source === undefined) {
       throw new DomainError("video-unavailable", "That is not a valid YouTube URL.", { input });
     }
-
-    if (parsed.kind === "playlist") {
-      if (isMixPlaylistId(parsed.playlistId)) {
-        throw new DomainError(
-          "unsupported-source",
-          "YouTube live streams and 'Mix' playlists are not supported yet.",
-          { playlistId: parsed.playlistId },
-        );
-      }
-      try {
-        const raw = await client.getPlaylist(parsed.playlistId);
-        const playlist = mapPlaylistInfo(raw.info, parsed.playlistId as PlaylistId);
-        return { kind: "playlist", playlist };
-      } catch (cause) {
-        throw toDomainError(cause, { playlistId: parsed.playlistId });
-      }
-    }
-
-    try {
-      const raw = await client.getInfo(parsed.videoId);
-      if (raw.basic_info.is_live === true) {
-        throw new DomainError(
-          "unsupported-source",
-          "YouTube live streams and 'Mix' playlists are not supported yet.",
-          { videoId: parsed.videoId },
-        );
-      }
-      if (raw.playability_status?.status !== "OK") {
-        throw new DomainError(
-          "video-unavailable",
-          "This video is not available (it may be private, deleted, or unavailable in your region).",
-          { videoId: parsed.videoId, status: raw.playability_status?.status ?? "unknown" },
-        );
-      }
-      const video = mapBasicVideoInfo(raw.basic_info, parsed.videoId as VideoId);
-      return { kind: "video", video };
-    } catch (cause) {
-      throw toDomainError(cause, { videoId: parsed.videoId });
-    }
+    return source.kind === "playlist"
+      ? resolvePlaylist(source.playlistId)
+      : resolveVideo(source.videoId);
   }
 
   async function search(
@@ -177,8 +167,8 @@ export async function createYoutubeExtractionService(): Promise<ExtractionServic
     try {
       let state =
         pageToken === undefined
-          ? { page: await client.search(query, { type: "video" }), consumed: 0 }
-          : takeSearchContinuation(pageToken);
+          ? { page: await (await getClient()).search(query, { type: "video" }), consumed: 0 }
+          : searchContinuations.take(pageToken);
 
       const results: Video[] = [];
       let consumedBefore = state.consumed;
@@ -208,7 +198,10 @@ export async function createYoutubeExtractionService(): Promise<ExtractionServic
 
       const nextPageToken =
         stoppedMidFeed && state.page.has_continuation
-          ? storeSearchContinuation(state.page, consumedBefore + servedFromFeed)
+          ? searchContinuations.store({
+              page: state.page,
+              consumed: consumedBefore + servedFromFeed,
+            })
           : undefined;
       return { results, nextPageToken };
     } catch (cause) {
@@ -226,20 +219,19 @@ export async function createYoutubeExtractionService(): Promise<ExtractionServic
     try {
       const page =
         pageToken === undefined
-          ? await client.getPlaylist(playlistId)
-          : await takePlaylistContinuation(pageToken);
+          ? await (await getClient()).getPlaylist(playlistId)
+          : await playlistContinuations.take(pageToken).getContinuation();
 
-      const items: Video[] = [];
-      for (const raw of page.items) {
-        if (!raw.is(YTNodes.LockupView, YTNodes.PlaylistVideo)) continue;
-        const video = mapPlaylistItem(raw);
-        if (video !== undefined) items.push(video);
-      }
+      const items = page.items.flatMap((raw) => {
+        if (!raw.is(YTNodes.LockupView, YTNodes.PlaylistVideo)) return [];
+        return mapPlaylistItem(raw) ?? [];
+      });
 
-      const playlist = mapPlaylistInfo(page.info, playlistId);
-      const nextPageToken = page.has_continuation ? storePlaylistContinuation(page) : undefined;
-
-      return { playlist, items, nextPageToken };
+      return {
+        playlist: mapPlaylistInfo(page.info, playlistId),
+        items,
+        nextPageToken: page.has_continuation ? playlistContinuations.store(page) : undefined,
+      };
     } catch (cause) {
       throw toDomainError(cause, { playlistId });
     }
@@ -252,6 +244,7 @@ export async function createYoutubeExtractionService(): Promise<ExtractionServic
     signal.throwIfAborted();
 
     try {
+      const client = await getClient();
       // ANDROID is the one client whose stream URLs are reliably fetchable
       const raw = await client.getBasicInfo(videoId, { client: "ANDROID" });
       const allFormats = [
@@ -260,20 +253,16 @@ export async function createYoutubeExtractionService(): Promise<ExtractionServic
       ];
 
       // Some listed formats carry no decipherable URL; skip them individually.
-      const deciphered = await Promise.all(
+      const candidates = await Promise.all(
         allFormats.map(async (format) => {
           try {
-            const url = await format.decipher(client.session.player);
-            return mapFormat(format, url);
+            return mapFormat(format, await format.decipher(client.session.player)) ?? [];
           } catch {
-            return undefined;
+            return [];
           }
         }),
       );
-      const candidates = deciphered.filter(
-        (candidate): candidate is FormatCandidate => candidate !== undefined,
-      );
-      return candidates;
+      return candidates.flat();
     } catch (cause) {
       throw toDomainError(cause, { videoId });
     }

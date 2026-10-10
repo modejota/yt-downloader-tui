@@ -1,3 +1,4 @@
+import { createPlaylistId, createVideoId } from "@/domain/media";
 import type {
   FormatCandidate,
   Playlist,
@@ -10,47 +11,42 @@ import type {
 } from "@/domain/media";
 
 export type ParsedSource =
-  | { readonly kind: "video"; readonly videoId: string }
-  | { readonly kind: "playlist"; readonly playlistId: string };
+  | { readonly kind: "video"; readonly videoId: VideoId }
+  | { readonly kind: "playlist"; readonly playlistId: PlaylistId };
 
 const YOUTUBE_HOSTS = new Set(["youtube.com", "youtu.be", "music.youtube.com"]);
 
+/** Recognizes a YouTube video or playlist URL; `undefined` for anything else (e.g. a search query). */
 export function parseYoutubeSourceUrl(input: string): ParsedSource | undefined {
-  let url: URL;
-  try {
-    url = new URL(input);
-  } catch {
-    return undefined;
-  }
+  if (!URL.canParse(input)) return undefined;
+  const url = new URL(input);
 
   const host = url.hostname.replace(/^(www|m)\./u, "");
   if (!YOUTUBE_HOSTS.has(host)) return undefined;
 
   const listId = url.searchParams.get("list");
-  if (listId !== null && listId.length > 0) return { kind: "playlist", playlistId: listId };
+  if (listId) return { kind: "playlist", playlistId: createPlaylistId(listId) };
 
-  if (host === "youtu.be") {
-    const videoId = url.pathname.slice(1);
-    return videoId.length > 0 ? { kind: "video", videoId } : undefined;
-  }
-
-  const shortsMatch = /^\/shorts\/([^/]+)/u.exec(url.pathname);
-  if (shortsMatch?.[1] !== undefined) return { kind: "video", videoId: shortsMatch[1] };
-
-  const videoId = url.searchParams.get("v");
-  return videoId !== null && videoId.length > 0 ? { kind: "video", videoId } : undefined;
+  const videoId =
+    host === "youtu.be"
+      ? url.pathname.slice(1)
+      : (/^\/shorts\/([^/]+)/u.exec(url.pathname)?.[1] ?? url.searchParams.get("v"));
+  if (!videoId) return undefined;
+  return { kind: "video", videoId: createVideoId(videoId) };
 }
 
 /** YouTube prefixes auto-generated Mix/Radio playlist ids with "RD". */
-export function isMixPlaylistId(playlistId: string): boolean {
+export function isMixPlaylistId(playlistId: PlaylistId): boolean {
   return playlistId.startsWith("RD");
 }
 
-function extractLeadingNumber(text: string): number {
+/** Reads a formatted count such as "56,620,171 views" or "436 videos". */
+function parseCountLabel(text: string): number {
   const digitsOnly = text.replace(/\D+/gu, "");
   return digitsOnly.length === 0 ? 0 : Number.parseInt(digitsOnly, 10);
 }
 
+/** Reads a clock label such as "1:02:03" into seconds. */
 function parseDurationLabel(text: string): number {
   return text
     .split(":")
@@ -94,11 +90,11 @@ export function mapSearchResult(raw: RawSearchVideo): Video | undefined {
   if (raw.type !== "Video") return undefined;
 
   return {
-    id: raw.video_id as VideoId,
+    id: createVideoId(raw.video_id),
     title: raw.title.toString(),
     channelName: raw.author.name,
     durationSeconds: raw.duration.seconds,
-    viewCount: raw.view_count === undefined ? 0 : extractLeadingNumber(raw.view_count.toString()),
+    viewCount: raw.view_count === undefined ? 0 : parseCountLabel(raw.view_count.toString()),
     likeCount: undefined,
     thumbnailUrl: raw.best_thumbnail?.url,
   };
@@ -113,7 +109,7 @@ export function mapPlaylistInfo(raw: RawPlaylistInfo, id: PlaylistId): Playlist 
   return {
     id,
     title: raw.title ?? "",
-    videoCount: extractLeadingNumber(raw.total_items),
+    videoCount: parseCountLabel(raw.total_items),
   };
 }
 
@@ -147,20 +143,17 @@ type RawLockupPlaylistItem = {
 
 export type RawPlaylistItem = RawPlaylistVideoItem | RawLockupPlaylistItem;
 
+/** The duration badge YouTube overlays on a lockup thumbnail, e.g. "3:45". */
 function findDurationLabel(
   contentImage: RawLockupPlaylistItem["content_image"],
 ): string | undefined {
-  for (const overlay of contentImage?.overlays ?? []) {
-    const badge = overlay.badges?.[0];
-    if (badge !== undefined) return badge.text;
-  }
-  return undefined;
+  return contentImage?.overlays?.flatMap((overlay) => overlay.badges ?? [])[0]?.text;
 }
 
 export function mapPlaylistItem(raw: RawPlaylistItem): Video | undefined {
   if (!("content_id" in raw)) {
     return {
-      id: raw.id as VideoId,
+      id: createVideoId(raw.id),
       title: raw.title.toString(),
       channelName: raw.author.name,
       durationSeconds: raw.duration.seconds,
@@ -177,7 +170,7 @@ export function mapPlaylistItem(raw: RawPlaylistItem): Video | undefined {
   const durationLabel = findDurationLabel(raw.content_image);
 
   return {
-    id: raw.content_id as VideoId,
+    id: createVideoId(raw.content_id),
     title: raw.metadata.title.toString(),
     channelName,
     durationSeconds: durationLabel === undefined ? 0 : parseDurationLabel(durationLabel),
@@ -217,47 +210,25 @@ function audioCodecFromMimeType(mimeType: string): SourceAudioCodec | undefined 
   return undefined;
 }
 
+/** `undefined` for formats the app cannot use: no URL, unknown container/codec, or no audio. */
 export function mapFormat(raw: RawFormat, url: string): FormatCandidate | undefined {
-  if (url.length === 0) return undefined;
-
   const container = containerFromMimeType(raw.mime_type);
-  if (container === undefined) return undefined;
-
-  const formatId = String(raw.itag);
-  const approximateSizeBytes = raw.content_length;
-
-  if (raw.has_audio && raw.has_video) {
-    const videoCodec = videoCodecFromMimeType(raw.mime_type);
-    const audioCodec = audioCodecFromMimeType(raw.mime_type);
-    if (videoCodec === undefined || audioCodec === undefined || raw.height === undefined) {
-      return undefined;
-    }
-    return {
-      role: "progressive",
-      formatId,
-      url,
-      container,
-      videoCodec,
-      audioCodec,
-      heightPixels: raw.height,
-      bitrateBps: raw.bitrate,
-      approximateSizeBytes,
-    };
+  const audioCodec = audioCodecFromMimeType(raw.mime_type);
+  if (url.length === 0 || container === undefined || !raw.has_audio || audioCodec === undefined) {
+    return undefined;
   }
 
-  if (raw.has_audio) {
-    const audioCodec = audioCodecFromMimeType(raw.mime_type);
-    if (audioCodec === undefined) return undefined;
-    return {
-      role: "audio-only",
-      formatId,
-      url,
-      container,
-      audioCodec,
-      bitrateBps: raw.bitrate,
-      approximateSizeBytes,
-    };
-  }
+  const common = {
+    formatId: String(raw.itag),
+    url,
+    container,
+    audioCodec,
+    bitrateBps: raw.bitrate,
+    approximateSizeBytes: raw.content_length,
+  };
+  if (!raw.has_video) return { role: "audio-only", ...common };
 
-  return undefined;
+  const videoCodec = videoCodecFromMimeType(raw.mime_type);
+  if (videoCodec === undefined || raw.height === undefined) return undefined;
+  return { role: "progressive", ...common, videoCodec, heightPixels: raw.height };
 }

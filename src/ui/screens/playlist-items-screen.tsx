@@ -3,11 +3,11 @@ import { useKeyboard } from "@opentui/react";
 import { useTranslation } from "react-i18next";
 
 import type { Playlist, Video } from "@/domain/media";
-import { DomainError } from "@/errors/domain-error";
-import { toHumanMessage } from "@/errors/human-message";
-import { palette, selectStyle } from "@/ui/theme";
+import { selectStyle } from "@/ui/theme";
 import { formatPlaylistItemSummary } from "@/ui/format-video-summary";
-import { Screen, Spinner } from "@/ui/components/chrome";
+import { ErrorLine, Screen, Spinner } from "@/ui/components/chrome";
+import { failureMessage } from "@/errors/human-message";
+import type { NonEmptyArray } from "@/ui/flow";
 import { useServices } from "@/ui/services-context";
 
 type Row =
@@ -19,7 +19,7 @@ type Row =
 
 type Props = {
   readonly playlist: Playlist;
-  readonly onConfirm: (videos: readonly Video[]) => void;
+  readonly onConfirm: (videos: NonEmptyArray<Video>) => void;
   readonly onBack: () => void;
 };
 
@@ -49,11 +49,11 @@ export function PlaylistItemsScreen({ playlist, onConfirm, onBack }: Props) {
           setNextPageToken(page.nextPageToken);
           setStatus({ kind: "ready" });
         },
-        (cause: unknown) => {
-          const message =
-            cause instanceof DomainError ? toHumanMessage(cause) : t("playlistItems.loadError");
-          setStatus({ kind: "error", message });
-        },
+        (cause: unknown) =>
+          setStatus({
+            kind: "error",
+            message: failureMessage(cause, t("playlistItems.loadError")),
+          }),
       );
     },
     [playlist.id, extraction, t],
@@ -74,10 +74,7 @@ export function PlaylistItemsScreen({ playlist, onConfirm, onBack }: Props) {
   if (status.kind === "error") {
     return (
       <Screen title={playlist.title} hints={[]}>
-        <text>
-          <span fg={palette.red}>✕ </span>
-          <span fg={palette.red}>{status.message}</span>
-        </text>
+        <ErrorLine message={status.message} />
       </Screen>
     );
   }
@@ -158,21 +155,16 @@ export function PlaylistItemsScreen({ playlist, onConfirm, onBack }: Props) {
             loadPage(nextPageToken);
             return;
           }
-          const selected = items.filter((video) => checked.has(video.id));
-          if (selected.length === 0) {
+          const [first, ...rest] = items.filter((video) => checked.has(video.id));
+          if (first === undefined) {
             setNotice(t("playlistItems.selectAtLeastOne"));
             return;
           }
-          onConfirm(selected);
+          onConfirm([first, ...rest]);
         }}
       />
       {status.kind === "loading" ? <Spinner label={t("playlistItems.loadingMore")} /> : undefined}
-      {notice !== undefined ? (
-        <text>
-          <span fg={palette.red}>✕ </span>
-          <span fg={palette.red}>{notice}</span>
-        </text>
-      ) : undefined}
+      {notice !== undefined ? <ErrorLine message={notice} /> : undefined}
     </Screen>
   );
 }

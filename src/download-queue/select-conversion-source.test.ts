@@ -33,16 +33,16 @@ describe("selectConversionSource", () => {
   it("picks the highest-bitrate audio stream", () => {
     const candidates = [audioOnly(64_000), audioOnly(160_000), progressive(720, 900)];
     const result = selectConversionSource(candidates);
-    expect(result).toEqual({ role: "combined", format: audioOnly(160_000) });
+    expect(result).toEqual(audioOnly(160_000));
   });
 
   it("falls back to the best progressive stream when no audio-only stream exists", () => {
     const candidates = [progressive(360, 900), progressive(720, 1400)];
     const result = selectConversionSource(candidates);
-    expect(result).toEqual({ role: "combined", format: progressive(720, 1400) });
+    expect(result).toEqual(progressive(720, 1400));
   });
 
-  it("throws format-unavailable when nothing usable exists", () => {
-    expect(() => selectConversionSource([])).toThrow(/No audio stream/u);
+  it("finds nothing when no stream carries audio", () => {
+    expect(selectConversionSource([])).toBeUndefined();
   });
 });

@@ -3,6 +3,19 @@ import type { Brand } from "@/domain/brand";
 export type VideoId = Brand<string, "VideoId">;
 export type PlaylistId = Brand<string, "PlaylistId">;
 
+/** YouTube ids are opaque tokens; the only invariant the brand carries is that one is present. */
+export function createVideoId(value: string): VideoId {
+  if (value.length === 0) throw new RangeError("A video id cannot be empty.");
+  // SAFETY: the guard above establishes the non-empty invariant the VideoId brand stands for.
+  return value as VideoId;
+}
+
+export function createPlaylistId(value: string): PlaylistId {
+  if (value.length === 0) throw new RangeError("A playlist id cannot be empty.");
+  // SAFETY: the guard above establishes the non-empty invariant the PlaylistId brand stands for.
+  return value as PlaylistId;
+}
+
 export type Video = {
   readonly id: VideoId;
   readonly title: string;

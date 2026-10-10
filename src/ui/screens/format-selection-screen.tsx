@@ -2,31 +2,42 @@ import { useEffect, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { useTranslation } from "react-i18next";
 
-import type { AudioOutputFormat, FormatCandidate, MediaSelection, Video } from "@/domain/media";
+import type {
+  AudioOutputFormat,
+  AudioQualityMode,
+  FormatCandidate,
+  MediaSelection,
+  Video,
+} from "@/domain/media";
 import { createTrimRange } from "@/domain/media";
-import { DomainError } from "@/errors/domain-error";
-import { toHumanMessage } from "@/errors/human-message";
-import { audioFormatHasBitrateChoice } from "@/ui/format-options";
+import {
+  AUDIO_BITRATES,
+  AUDIO_FORMATS,
+  AUDIO_QUALITY_MODES,
+  audioFormatHasBitrateChoice,
+} from "@/ui/format-options";
+import { failureMessage } from "@/errors/human-message";
 import { estimateBytes, mediaDetails } from "@/ui/format-summary";
-import { formatVideoSummary } from "@/ui/format-video-summary";
+import { videoSummary } from "@/ui/format-video-summary";
 import { palette } from "@/ui/theme";
 import { Screen, Spinner } from "@/ui/components/chrome";
-import { Form, type FormRow } from "@/ui/components/form";
+import { Form, choicesOf, type FormRow } from "@/ui/components/form";
 import { MediaCard } from "@/ui/components/media-card";
 import { useServices } from "@/ui/services-context";
 
-const AUDIO_FORMATS: readonly AudioOutputFormat[] = ["mp3", "aac", "opus", "flac", "wav"];
-const AUDIO_QUALITY_MODES = ["cbr", "vbr"] as const;
-const BITRATE_VALUES: readonly (number | "max")[] = ["max", 320, 256, 192, 128, 96];
-
 type Draft = {
-  readonly audioFormatIndex: number;
-  readonly bitrateIndex: number;
-  readonly qualityModeIndex: number;
+  readonly audioFormat: AudioOutputFormat;
+  readonly bitrate: number | "max";
+  readonly qualityMode: AudioQualityMode;
   readonly trimEnabled: boolean;
   readonly trimStart: string;
   readonly trimEnd: string;
 };
+
+type Formats =
+  | { readonly kind: "loading" }
+  | { readonly kind: "failed"; readonly message: string }
+  | { readonly kind: "ready"; readonly candidates: readonly FormatCandidate[] };
 
 type BuildResult =
   | { readonly ok: true; readonly selection: MediaSelection }
@@ -43,14 +54,15 @@ type Props = {
 export function FormatSelectionScreen({ video, progressLabel, onConfirm, onBack }: Props) {
   const { extraction, defaults } = useServices();
   const { t } = useTranslation();
-  const [candidates, setCandidates] = useState<readonly FormatCandidate[]>([]);
-  const [loadState, setLoadState] = useState<"loading" | "error" | "ready">("loading");
-  const [loadError, setLoadError] = useState("");
+  const [formats, setFormats] = useState<Formats>({ kind: "loading" });
   const [trimError, setTrimError] = useState<string | undefined>(undefined);
   const [draft, setDraft] = useState<Draft>(() => ({
-    audioFormatIndex: AUDIO_FORMATS.indexOf(defaults.defaultAudioFormat),
-    bitrateIndex: BITRATE_VALUES.indexOf(defaults.defaultAudioBitrateKbps),
-    qualityModeIndex: AUDIO_QUALITY_MODES.indexOf(defaults.defaultAudioQualityMode),
+    audioFormat: defaults.defaultAudioFormat,
+    // A custom persisted bitrate isn't offered here; start from the best quality instead.
+    bitrate: AUDIO_BITRATES.includes(defaults.defaultAudioBitrateKbps)
+      ? defaults.defaultAudioBitrateKbps
+      : "max",
+    qualityMode: defaults.defaultAudioQualityMode,
     trimEnabled: false,
     trimStart: "",
     trimEnd: "",
@@ -63,20 +75,16 @@ export function FormatSelectionScreen({ video, progressLabel, onConfirm, onBack 
   useEffect(() => {
     const signal = new AbortController().signal;
     extraction.getFormatCandidates(video.id, signal).then(
-      (result) => {
-        setCandidates(result);
-        setLoadState("ready");
-      },
-      (cause: unknown) => {
-        setLoadError(
-          cause instanceof DomainError ? toHumanMessage(cause) : t("formatSelection.loadError"),
-        );
-        setLoadState("error");
-      },
+      (candidates) => setFormats({ kind: "ready", candidates }),
+      (cause: unknown) =>
+        setFormats({
+          kind: "failed",
+          message: failureMessage(cause, t("formatSelection.loadError")),
+        }),
     );
   }, [video.id, extraction, t]);
 
-  if (loadState === "loading") {
+  if (formats.kind === "loading") {
     return (
       <Screen title={t("formatSelection.title")} hints={[]}>
         <Spinner label={t("formatSelection.loading")} />
@@ -84,18 +92,17 @@ export function FormatSelectionScreen({ video, progressLabel, onConfirm, onBack 
     );
   }
 
-  if (loadState === "error") {
+  if (formats.kind === "failed") {
     return (
       <Screen title={t("formatSelection.title")} hints={[]}>
-        <text fg={palette.red}>{loadError}</text>
+        <text fg={palette.red}>{formats.message}</text>
       </Screen>
     );
   }
 
-  const audioFormat = AUDIO_FORMATS[draft.audioFormatIndex] ?? "mp3";
-  const bitrate = BITRATE_VALUES[draft.bitrateIndex] ?? "max";
-  const qualityMode = AUDIO_QUALITY_MODES[draft.qualityModeIndex] ?? "vbr";
-  const losslessAudio = !audioFormatHasBitrateChoice(audioFormat);
+  const { candidates } = formats;
+  const losslessAudio = !audioFormatHasBitrateChoice(draft.audioFormat);
+  const upperCase = (value: string) => value.toUpperCase();
 
   function update(patch: Partial<Draft>): void {
     setDraft((current) => ({ ...current, ...patch }));
@@ -104,9 +111,9 @@ export function FormatSelectionScreen({ video, progressLabel, onConfirm, onBack 
   function buildSelection(): BuildResult {
     const base: MediaSelection = {
       kind: "audio",
-      format: audioFormat,
-      bitrateKbps: losslessAudio ? "max" : bitrate,
-      qualityMode: losslessAudio ? undefined : qualityMode,
+      format: draft.audioFormat,
+      bitrateKbps: losslessAudio ? "max" : draft.bitrate,
+      qualityMode: losslessAudio ? undefined : draft.qualityMode,
       trim: undefined,
     };
 
@@ -148,25 +155,26 @@ export function FormatSelectionScreen({ video, progressLabel, onConfirm, onBack 
       kind: "choice",
       id: "audio-format",
       label: t("formatSelection.formatLabel"),
-      choices: AUDIO_FORMATS.map((format) => format.toUpperCase()),
-      selectedIndex: draft.audioFormatIndex,
-      onChange: (audioFormatIndex) => update({ audioFormatIndex }),
+      choices: choicesOf(AUDIO_FORMATS, draft.audioFormat, upperCase, (audioFormat) =>
+        update({ audioFormat }),
+      ),
     },
     losslessAudio
       ? {
           kind: "info",
-          text: t("formatSelection.losslessInfo", { format: audioFormat.toUpperCase() }),
+          text: t("formatSelection.losslessInfo", { format: draft.audioFormat.toUpperCase() }),
           tone: "dim",
         }
       : {
           kind: "choice",
           id: "bitrate",
           label: t("formatSelection.qualityLabel"),
-          choices: BITRATE_VALUES.map((value) =>
-            value === "max" ? t("formatSelection.bestQuality") : `${value}`,
+          choices: choicesOf(
+            AUDIO_BITRATES,
+            draft.bitrate,
+            (value) => (value === "max" ? t("formatSelection.bestQuality") : `${value}`),
+            (bitrate) => update({ bitrate }),
           ),
-          selectedIndex: draft.bitrateIndex === -1 ? 0 : draft.bitrateIndex,
-          onChange: (bitrateIndex) => update({ bitrateIndex }),
         },
     { kind: "heading", label: t("formatSelection.advancedHeading") },
     ...(losslessAudio
@@ -176,21 +184,24 @@ export function FormatSelectionScreen({ video, progressLabel, onConfirm, onBack 
             kind: "choice",
             id: "quality-mode",
             label: t("formatSelection.qualityModeLabel"),
-            choices: AUDIO_QUALITY_MODES.map((value) => value.toUpperCase()),
-            selectedIndex: draft.qualityModeIndex,
-            onChange: (qualityModeIndex: number) => update({ qualityModeIndex }),
+            choices: choicesOf(AUDIO_QUALITY_MODES, draft.qualityMode, upperCase, (qualityMode) =>
+              update({ qualityMode }),
+            ),
           } as const,
         ]),
     {
       kind: "choice",
       id: "trim",
       label: t("formatSelection.trimLabel"),
-      choices: [t("formatSelection.trimOff"), t("formatSelection.trimOn")],
-      selectedIndex: draft.trimEnabled ? 1 : 0,
-      onChange: (index) => {
-        setTrimError(undefined);
-        update({ trimEnabled: index === 1 });
-      },
+      choices: choicesOf(
+        [false, true],
+        draft.trimEnabled,
+        (enabled) => (enabled ? t("formatSelection.trimOn") : t("formatSelection.trimOff")),
+        (trimEnabled) => {
+          setTrimError(undefined);
+          update({ trimEnabled });
+        },
+      ),
     },
     ...(draft.trimEnabled
       ? ([
@@ -233,7 +244,7 @@ export function FormatSelectionScreen({ video, progressLabel, onConfirm, onBack 
     >
       <MediaCard
         title={video.title}
-        meta={formatVideoSummary(video).split(" · ")}
+        meta={videoSummary(video)}
         badge={progressLabel}
         details={details}
       />

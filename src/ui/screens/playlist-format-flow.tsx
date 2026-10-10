@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { useTranslation } from "react-i18next";
 
 import type { MediaSelection, Video } from "@/domain/media";
-import { Form, type FormRow } from "@/ui/components/form";
+import { Form, choicesOf, type FormRow } from "@/ui/components/form";
+import type { NonEmptyArray } from "@/ui/flow";
 import { Screen } from "@/ui/components/chrome";
 import { FormatSelectionScreen } from "@/ui/screens/format-selection-screen";
 
@@ -17,12 +18,14 @@ type Step =
   | { readonly name: "shared-format" }
   | {
       readonly name: "individual-format";
-      readonly index: number;
-      readonly collected: readonly MediaSelection[];
+      /** Already configured entries, in playlist order. */
+      readonly configured: readonly VideoSelectionPair[];
+      /** The entry being configured first, then the ones still waiting. */
+      readonly remaining: NonEmptyArray<Video>;
     };
 
 type Props = {
-  readonly videos: readonly Video[];
+  readonly videos: NonEmptyArray<Video>;
   readonly onConfirm: (pairs: readonly VideoSelectionPair[]) => void;
   readonly onBack: () => void;
 };
@@ -41,16 +44,6 @@ export function PlaylistFormatFlow({ videos, onConfirm, onBack }: Props) {
     if (key.name === "escape" && step.name === "mode-prompt") onBack();
   });
 
-  const firstVideo = videos[0];
-
-  useEffect(() => {
-    if (firstVideo === undefined) onBack();
-  }, [firstVideo, onBack]);
-
-  if (firstVideo === undefined) {
-    return <text>{t("playlistFormat.goingBack")}</text>;
-  }
-
   if (step.name === "mode-prompt") {
     const rows: FormRow[] = [
       { kind: "heading", label: t("playlistFormat.modeTitle", { count: videos.length }) },
@@ -58,9 +51,13 @@ export function PlaylistFormatFlow({ videos, onConfirm, onBack }: Props) {
         kind: "choice",
         id: "mode",
         label: t("playlistFormat.modeLabel"),
-        choices: [t("playlistFormat.applyToAll"), t("playlistFormat.configureIndividually")],
-        selectedIndex: sharedMode ? 0 : 1,
-        onChange: (index) => setSharedMode(index === 0),
+        choices: choicesOf(
+          [true, false],
+          sharedMode,
+          (shared) =>
+            shared ? t("playlistFormat.applyToAll") : t("playlistFormat.configureIndividually"),
+          setSharedMode,
+        ),
       },
       {
         kind: "action",
@@ -70,7 +67,7 @@ export function PlaylistFormatFlow({ videos, onConfirm, onBack }: Props) {
           setStep(
             sharedMode
               ? { name: "shared-format" }
-              : { name: "individual-format", index: 0, collected: [] },
+              : { name: "individual-format", configured: [], remaining: videos },
           ),
       },
     ];
@@ -92,7 +89,7 @@ export function PlaylistFormatFlow({ videos, onConfirm, onBack }: Props) {
   if (step.name === "shared-format") {
     return (
       <FormatSelectionScreen
-        video={firstVideo}
+        video={videos[0]}
         onConfirm={(_candidates, selection) =>
           onConfirm(videos.map((video) => ({ video, selection })))
         }
@@ -101,42 +98,42 @@ export function PlaylistFormatFlow({ videos, onConfirm, onBack }: Props) {
     );
   }
 
-  const current = videos[step.index];
-  if (current === undefined) {
-    return <text>{t("playlistFormat.preparingDestination")}</text>;
-  }
+  const { configured, remaining } = step;
+  const [current, ...waiting] = remaining;
 
   return (
     <FormatSelectionScreen
       key={current.id}
       video={current}
       progressLabel={t("playlistFormat.videoProgress", {
-        index: step.index + 1,
+        index: configured.length + 1,
         count: videos.length,
       })}
       onConfirm={(_candidates, selection) => {
-        const collected = [...step.collected, selection];
-        if (collected.length >= videos.length) {
-          const pairs = videos
-            .map((video, index): VideoSelectionPair | undefined => {
-              const pairSelection = collected[index];
-              return pairSelection === undefined ? undefined : { video, selection: pairSelection };
-            })
-            .filter((pair): pair is VideoSelectionPair => pair !== undefined);
-          onConfirm(pairs);
+        const nowConfigured = [...configured, { video: current, selection }];
+        const [next, ...rest] = waiting;
+        if (next === undefined) {
+          onConfirm(nowConfigured);
           return;
         }
-        setStep({ name: "individual-format", index: step.index + 1, collected });
+        setStep({
+          name: "individual-format",
+          configured: nowConfigured,
+          remaining: [next, ...rest],
+        });
       }}
-      onBack={() =>
-        step.index === 0
-          ? setStep({ name: "mode-prompt" })
-          : setStep({
-              name: "individual-format",
-              index: step.index - 1,
-              collected: step.collected.slice(0, -1),
-            })
-      }
+      onBack={() => {
+        const previous = configured.at(-1);
+        if (previous === undefined) {
+          setStep({ name: "mode-prompt" });
+          return;
+        }
+        setStep({
+          name: "individual-format",
+          configured: configured.slice(0, -1),
+          remaining: [previous.video, ...remaining],
+        });
+      }}
     />
   );
 }

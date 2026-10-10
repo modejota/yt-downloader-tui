@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Playlist, Video } from "@/domain/media";
-import { toHumanMessage } from "@/errors/human-message";
-import { DomainError } from "@/errors/domain-error";
 import { parseYoutubeSourceUrl } from "@/extraction/mapping";
 import { onSubmitString } from "@/ui/opentui-input-fix";
 import { palette, inputStyle } from "@/ui/theme";
-import { Card, Spinner, useScreenHints } from "@/ui/components/chrome";
-import { useQueueStore } from "@/ui/queue-store";
+import { Card, ErrorLine, Spinner, useScreenHints } from "@/ui/components/chrome";
+import { failureMessage } from "@/errors/human-message";
+import { dismissLastFinished, useQueueStore, type FinishedDownload } from "@/ui/queue-store";
 import { useServices } from "@/ui/services-context";
 
 type Props = {
@@ -22,15 +21,6 @@ type Props = {
   ) => void;
 };
 
-type CompletionNotice = { readonly tone: "ok" | "error"; readonly text: string };
-
-// Reported terminal jobs, kept across HomeScreen remounts so navigating the
-// flow and coming back doesn't re-announce an old completion.
-const reportedJobIds = new Set<string>();
-// The latest completion announcement, so it outlives remounts (unlike the
-// "added to queue" notice, which belongs to the flow that produced it).
-let lastCompletion: CompletionNotice | undefined;
-
 /** A single input doubles as "paste a URL" and "search", auto-detected. */
 export function HomeScreen({
   notice,
@@ -43,32 +33,8 @@ export function HomeScreen({
   const [status, setStatus] = useState<
     { kind: "idle" } | { kind: "busy" } | { kind: "error"; message: string }
   >({ kind: "idle" });
-  const [completion, setCompletion] = useState<CompletionNotice | undefined>(lastCompletion);
-  const jobs = useQueueStore((state) => state.snapshot.jobs);
-
-  // The queue is empty at startup and jobs only ever reach a terminal state
-  // once, so "a terminal job we haven't reported" is exactly "a download
-  // that just finished" — announced here instead of the stale enqueued note.
-  useEffect(() => {
-    for (const job of jobs) {
-      const status = job.state.status;
-      if (status !== "completed" && status !== "error") continue;
-      if (reportedJobIds.has(job.id)) continue;
-      reportedJobIds.add(job.id);
-      const announcement: CompletionNotice =
-        status === "completed"
-          ? { tone: "ok", text: t("home.downloadCompleted", { title: job.video.title }) }
-          : {
-              tone: "error",
-              text: t("home.downloadFailed", {
-                title: job.video.title,
-                message: job.state.message,
-              }),
-            };
-      lastCompletion = announcement;
-      setCompletion(announcement);
-    }
-  }, [jobs, t]);
+  // Announced instead of the stale "added to queue" notice, which belongs to the flow that produced it.
+  const lastFinished = useQueueStore((state) => state.lastFinished);
 
   useScreenHints([{ keys: "Enter", label: t("hints.submit") }]);
 
@@ -77,8 +43,7 @@ export function HomeScreen({
     if (trimmed.length === 0) return;
 
     setStatus({ kind: "busy" });
-    lastCompletion = undefined;
-    setCompletion(undefined);
+    dismissLastFinished();
     const signal = new AbortController().signal;
 
     try {
@@ -99,8 +64,7 @@ export function HomeScreen({
       }
       onSearchResults(trimmed, page.results, page.nextPageToken);
     } catch (cause) {
-      const message = cause instanceof DomainError ? toHumanMessage(cause) : t("home.genericError");
-      setStatus({ kind: "error", message });
+      setStatus({ kind: "error", message: failureMessage(cause, t("home.genericError")) });
     }
   }
 
@@ -130,21 +94,11 @@ export function HomeScreen({
           <text fg={palette.dimmer}>▸ {t("home.tipSearch")}</text>
         </box>
         {status.kind === "busy" ? <Spinner label={t("home.searching")} /> : undefined}
-        {status.kind === "error" ? (
-          <text>
-            <span fg={palette.red}>✕ </span>
-            <span fg={palette.red}>{status.message}</span>
-          </text>
+        {status.kind === "error" ? <ErrorLine message={status.message} /> : undefined}
+        {status.kind === "idle" && lastFinished !== undefined ? (
+          <FinishedNotice finished={lastFinished} />
         ) : undefined}
-        {status.kind === "idle" && completion !== undefined ? (
-          <text>
-            <span fg={completion.tone === "ok" ? palette.green : palette.red}>
-              {completion.tone === "ok" ? "✓" : "✕"}{" "}
-            </span>
-            <span fg={palette.dim}>{completion.text}</span>
-          </text>
-        ) : undefined}
-        {status.kind === "idle" && completion === undefined && notice !== undefined ? (
+        {status.kind === "idle" && lastFinished === undefined && notice !== undefined ? (
           <text>
             <span fg={palette.green}>✓ </span>
             <span fg={palette.dim}>{notice}</span>
@@ -152,5 +106,25 @@ export function HomeScreen({
         ) : undefined}
       </box>
     </box>
+  );
+}
+
+function FinishedNotice({ finished }: { readonly finished: FinishedDownload }) {
+  const { t } = useTranslation();
+  if (finished.outcome === "completed") {
+    return (
+      <text>
+        <span fg={palette.green}>✓ </span>
+        <span fg={palette.dim}>{t("home.downloadCompleted", { title: finished.title })}</span>
+      </text>
+    );
+  }
+  return (
+    <text>
+      <span fg={palette.red}>✕ </span>
+      <span fg={palette.dim}>
+        {t("home.downloadFailed", { title: finished.title, message: finished.message })}
+      </span>
+    </text>
   );
 }

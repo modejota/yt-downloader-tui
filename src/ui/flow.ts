@@ -1,6 +1,8 @@
 import type { FormatCandidate, MediaSelection, Playlist, Video } from "@/domain/media";
 import type { VideoSelectionPair } from "@/ui/screens/playlist-format-flow";
 
+export type NonEmptyArray<Item> = readonly [Item, ...Item[]];
+
 /**
  * The navigable screens up to enqueueing a job. Once a job is enqueued, it
  * stops being part of this navigation — its progress lives in the
@@ -25,11 +27,13 @@ export type FlowState =
   | {
       readonly screen: "playlist-format";
       readonly playlist: Playlist;
-      readonly videos: readonly Video[];
+      readonly videos: NonEmptyArray<Video>;
     }
   | {
       readonly screen: "playlist-destination";
       readonly playlist: Playlist;
+      /** The entries picked on the items screen, to step back into the format flow. */
+      readonly videos: NonEmptyArray<Video>;
       readonly pairs: readonly VideoSelectionPair[];
     };
 

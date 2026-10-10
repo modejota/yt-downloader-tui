@@ -1,5 +1,5 @@
 import { i18n } from "@/i18n/index";
-import type { DomainError, DomainErrorKind } from "@/errors/domain-error";
+import { DomainError, type DomainErrorKind } from "@/errors/domain-error";
 
 const KEY_BY_KIND = {
   "video-unavailable": "errors.videoUnavailable",
@@ -13,8 +13,13 @@ const KEY_BY_KIND = {
 } satisfies Record<DomainErrorKind, string>;
 
 export function toHumanMessage(error: DomainError): string {
-  if (error.kind === "format-unavailable" && error.context["usedQuality"] !== undefined) {
-    return i18n.t("errors.formatUnavailableWithFallback", error.context);
-  }
   return i18n.t(KEY_BY_KIND[error.kind], error.context);
+}
+
+/**
+ * What the user is told when an operation fails: a DomainError's human message, or the caller's
+ * generic `fallback` for anything unexpected — never a raw error or stack trace.
+ */
+export function failureMessage(cause: unknown, fallback: string): string {
+  return cause instanceof DomainError ? toHumanMessage(cause) : fallback;
 }

@@ -1,25 +1,21 @@
 import type { FormatCandidate } from "@/domain/media";
-import type { ConversionSource } from "@/domain/ports";
-import { DomainError } from "@/errors/domain-error";
 
-function highestBitrate(candidates: readonly FormatCandidate[]): FormatCandidate | undefined {
-  return candidates.reduce<FormatCandidate | undefined>((best, candidate) => {
-    if (best === undefined) return candidate;
-    return candidate.bitrateBps > best.bitrateBps ? candidate : best;
-  }, undefined);
+function highestBitrate(
+  candidates: readonly FormatCandidate[],
+  role: FormatCandidate["role"],
+): FormatCandidate | undefined {
+  return candidates
+    .filter((candidate) => candidate.role === role)
+    .toSorted((left, right) => right.bitrateBps - left.bitrateBps)[0];
 }
 
 /**
  * Picks which FormatCandidate feeds the media pipeline: the highest-bitrate
  * audio-only stream, falling back to the best progressive stream (whose
- * audio track the pipeline extracts).
+ * audio track the pipeline extracts). Undefined when the video has no audio stream at all.
  */
-export function selectConversionSource(candidates: readonly FormatCandidate[]): ConversionSource {
-  const audioOnly = candidates.filter((candidate) => candidate.role === "audio-only");
-  const progressive = candidates.filter((candidate) => candidate.role === "progressive");
-  const best = highestBitrate(audioOnly) ?? highestBitrate(progressive);
-  if (best === undefined) {
-    throw new DomainError("format-unavailable", "No audio stream is available for this video.");
-  }
-  return { role: "combined", format: best };
+export function selectConversionSource(
+  candidates: readonly FormatCandidate[],
+): FormatCandidate | undefined {
+  return highestBitrate(candidates, "audio-only") ?? highestBitrate(candidates, "progressive");
 }

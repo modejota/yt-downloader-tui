@@ -10,7 +10,7 @@ import type {
 } from "@/domain/queue";
 import type { EmbeddedMetadata, ExtractionService, MediaPipeline } from "@/domain/ports";
 import { DomainError } from "@/errors/domain-error";
-import { toHumanMessage } from "@/errors/human-message";
+import { failureMessage } from "@/errors/human-message";
 import { i18n } from "@/i18n/index";
 import { selectConversionSource } from "@/download-queue/select-conversion-source";
 import { realDelay, withNetworkRetry } from "@/download-queue/retry";
@@ -60,15 +60,20 @@ export function createDownloadQueue(options: DownloadQueueOptions): DownloadQueu
   const { extraction, mediaPipeline, maxConcurrentDownloads, delay = realDelay } = options;
 
   const jobsById = new Map<DownloadJobId, DownloadJob>();
-  const controllersById = new Map<DownloadJobId, AbortController>();
+  /** One entry per in-flight job; its size is the number of occupied concurrency slots. */
+  const runningJobs = new Map<DownloadJobId, AbortController>();
   const listeners = new Set<(snapshot: DownloadQueueSnapshot) => void>();
-  let activeCount = 0;
 
-  function notify(): void {
-    const snapshot: DownloadQueueSnapshot = { jobs: [...jobsById.values()] };
-    for (const listener of listeners) listener(snapshot);
+  function snapshot(): DownloadQueueSnapshot {
+    return { jobs: [...jobsById.values()] };
   }
 
+  function notify(): void {
+    const current = snapshot();
+    for (const listener of listeners) listener(current);
+  }
+
+  /** Terminal states are final: late progress from an aborted job must not resurrect it. */
   function updateJobState(id: DownloadJobId, state: DownloadJobState): void {
     const existing = jobsById.get(id);
     if (existing === undefined || isTerminal(existing.state)) return;
@@ -76,39 +81,39 @@ export function createDownloadQueue(options: DownloadQueueOptions): DownloadQueu
     notify();
   }
 
-  async function processJobOnce(job: DownloadJob, signal: AbortSignal): Promise<string> {
+  async function downloadOnce(job: DownloadJob, signal: AbortSignal): Promise<string> {
     updateJobState(job.id, { status: "resolving-formats" });
 
     const candidates = await extraction.getFormatCandidates(job.video.id, signal);
     const source = selectConversionSource(candidates);
-    const destinationPath = path.join(job.destination.directoryPath, job.destination.fileName);
+    if (source === undefined) {
+      throw new DomainError("format-unavailable", "No audio stream is available for this video.");
+    }
+    const spec = {
+      source,
+      selection: job.selection,
+      destinationPath: path.join(job.destination.directoryPath, job.destination.fileName),
+      metadata: embeddedMetadataFor(job),
+    };
 
-    for await (const event of mediaPipeline.convert(
-      {
-        source,
-        selection: job.selection,
-        destinationPath,
-        metadata: embeddedMetadataFor(job),
-      },
-      signal,
-    )) {
-      if (event.stage === "downloading") {
-        updateJobState(job.id, {
-          status: "downloading",
-          bytesReceived: event.bytesReceived,
-          bytesTotal: event.bytesTotal,
-        });
-        continue;
+    for await (const event of mediaPipeline.convert(spec, signal)) {
+      switch (event.stage) {
+        case "downloading":
+          updateJobState(job.id, {
+            status: "downloading",
+            bytesReceived: event.bytesReceived,
+            bytesTotal: event.bytesTotal,
+          });
+          break;
+        case "converting":
+          updateJobState(job.id, { status: "converting", ratio: event.ratio, mode: event.mode });
+          break;
+        case "tagging":
+          updateJobState(job.id, { status: "tagging" });
+          break;
+        case "done":
+          return event.outputPath;
       }
-      if (event.stage === "converting") {
-        updateJobState(job.id, { status: "converting", ratio: event.ratio, mode: event.mode });
-        continue;
-      }
-      if (event.stage === "tagging") {
-        updateJobState(job.id, { status: "tagging" });
-        continue;
-      }
-      return event.outputPath;
     }
 
     throw new DomainError(
@@ -119,58 +124,47 @@ export function createDownloadQueue(options: DownloadQueueOptions): DownloadQueu
 
   async function runJob(job: DownloadJob): Promise<void> {
     const controller = new AbortController();
-    controllersById.set(job.id, controller);
+    runningJobs.set(job.id, controller);
 
     try {
-      const outputPath = await withNetworkRetry(
-        () => processJobOnce(job, controller.signal),
-        delay,
-      );
+      const outputPath = await withNetworkRetry(() => downloadOnce(job, controller.signal), delay);
       updateJobState(job.id, { status: "completed", outputPath });
     } catch (cause) {
-      const message =
-        cause instanceof DomainError ? toHumanMessage(cause) : i18n.t("errors.unknown");
-      updateJobState(job.id, { status: "error", message });
+      updateJobState(job.id, {
+        status: "error",
+        message: failureMessage(cause, i18n.t("errors.unknown")),
+      });
     } finally {
-      controllersById.delete(job.id);
-      activeCount -= 1;
+      runningJobs.delete(job.id);
       startNextPendingJob();
     }
   }
 
   function startNextPendingJob(): void {
-    if (activeCount >= maxConcurrentDownloads) return;
+    if (runningJobs.size >= maxConcurrentDownloads) return;
     const next = [...jobsById.values()].find((job) => job.state.status === "pending");
     if (next === undefined) return;
-    activeCount += 1;
+    // runJob registers itself in runningJobs and leaves "pending" synchronously, before its first await.
     void runJob(next);
   }
 
   function enqueue(request: DownloadJobRequest): DownloadJobId {
+    // SAFETY: randomUUID mints a fresh, unique string, and this queue is the only issuer of DownloadJobIds.
     const id = crypto.randomUUID() as DownloadJobId;
-    jobsById.set(id, {
-      id,
-      video: request.video,
-      selection: request.selection,
-      destination: request.destination,
-      embedMetadata: request.embedMetadata,
-      state: { status: "pending" },
-    });
+    jobsById.set(id, { ...request, id, state: { status: "pending" } });
     notify();
     startNextPendingJob();
     return id;
   }
 
   function cancel(id: DownloadJobId): void {
-    const job = jobsById.get(id);
-    if (job === undefined || isTerminal(job.state)) return;
-    controllersById.get(id)?.abort();
+    runningJobs.get(id)?.abort();
     updateJobState(id, { status: "cancelled" });
   }
 
   function subscribe(listener: (snapshot: DownloadQueueSnapshot) => void): Unsubscribe {
     listeners.add(listener);
-    listener({ jobs: [...jobsById.values()] });
+    listener(snapshot());
     return () => listeners.delete(listener);
   }
 

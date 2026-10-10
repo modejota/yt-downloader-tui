@@ -1,14 +1,13 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useTranslation } from "react-i18next";
 
 import type { Video } from "@/domain/media";
-import { DomainError } from "@/errors/domain-error";
-import { toHumanMessage } from "@/errors/human-message";
 import { formatCount, formatDuration } from "@/ui/format-video-summary";
 import { truncateText } from "@/ui/truncate";
 import { palette } from "@/ui/theme";
-import { Screen, Spinner } from "@/ui/components/chrome";
+import { ErrorLine, Screen, Spinner } from "@/ui/components/chrome";
+import { failureMessage } from "@/errors/human-message";
 import { useServices } from "@/ui/services-context";
 
 type Props = {
@@ -27,13 +26,13 @@ export function SearchResultsScreen({ query, results, nextPageToken, onPick, onB
   const [items, setItems] = useState<readonly Video[]>(() => results);
   const [token, setToken] = useState<string | undefined>(nextPageToken);
   const [cursor, setCursor] = useState(0);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [loadError, setLoadError] = useState<string | undefined>(undefined);
+  const [moreStatus, setMoreStatus] = useState<
+    { kind: "idle" } | { kind: "loading" } | { kind: "error"; message: string }
+  >({ kind: "idle" });
   const { width, height } = useTerminalDimensions();
-  const latestRequestId = useRef(0);
 
-  const hasMore = token !== undefined && !loadingMore;
-  const rowCount = items.length + (hasMore || loadingMore ? 1 : 0);
+  // The trailing "load more" row exists while YouTube has another page.
+  const rowCount = items.length + (token === undefined ? 0 : 1);
 
   const visibleRows = Math.max(4, height - 8);
   const windowStart = Math.max(
@@ -41,33 +40,23 @@ export function SearchResultsScreen({ query, results, nextPageToken, onPick, onB
     Math.min(cursor - Math.floor(visibleRows / 2), rowCount - visibleRows),
   );
   const visibleItems = items.slice(windowStart, windowStart + visibleRows);
-  const extraRowVisible = rowCount > items.length && windowStart + visibleRows > items.length;
-
-  function clampCursor(next: number): void {
-    setCursor(Math.min(Math.max(0, next), rowCount - 1));
-  }
+  const loadMoreRowVisible = rowCount > items.length && windowStart + visibleRows > items.length;
 
   async function loadMore(): Promise<void> {
-    if (loadingMore || token === undefined) return;
-    const requestId = ++latestRequestId.current;
-    setLoadingMore(true);
-    setLoadError(undefined);
+    if (moreStatus.kind === "loading" || token === undefined) return;
+    setMoreStatus({ kind: "loading" });
     const signal = new AbortController().signal;
     try {
       const page = await extraction.search(query, defaults.searchResultsCount, token, signal);
-      if (latestRequestId.current !== requestId) return;
-      const knownIds = new Set(items.map((video) => video.id));
-      setItems((current) => [
-        ...current,
-        ...page.results.filter((video) => !knownIds.has(video.id)),
-      ]);
+      setItems((current) => {
+        const knownIds = new Set(current.map((video) => video.id));
+        return [...current, ...page.results.filter((video) => !knownIds.has(video.id))];
+      });
       setToken(page.nextPageToken);
       setCursor(items.length);
+      setMoreStatus({ kind: "idle" });
     } catch (cause) {
-      if (latestRequestId.current !== requestId) return;
-      setLoadError(cause instanceof DomainError ? toHumanMessage(cause) : t("home.genericError"));
-    } finally {
-      if (latestRequestId.current === requestId) setLoadingMore(false);
+      setMoreStatus({ kind: "error", message: failureMessage(cause, t("home.genericError")) });
     }
   }
 
@@ -77,21 +66,17 @@ export function SearchResultsScreen({ query, results, nextPageToken, onPick, onB
       return;
     }
     if (key.name === "up") {
-      clampCursor((cursor + rowCount - 1) % rowCount);
+      setCursor((cursor + rowCount - 1) % rowCount);
       return;
     }
     if (key.name === "down") {
-      clampCursor((cursor + 1) % rowCount);
+      setCursor((cursor + 1) % rowCount);
       return;
     }
-    if (key.name === "return") {
-      if (cursor >= items.length) {
-        void loadMore();
-      } else {
-        const video = items[cursor];
-        if (video !== undefined) onPick(video);
-      }
-    }
+    if (key.name !== "return") return;
+    const video = items[cursor];
+    if (video === undefined) void loadMore();
+    else onPick(video);
   });
 
   function renderRow(video: Video, index: number) {
@@ -126,7 +111,7 @@ export function SearchResultsScreen({ query, results, nextPageToken, onPick, onB
     );
   }
 
-  const extraRowActive = cursor >= items.length;
+  const loadMoreRowActive = cursor >= items.length;
 
   return (
     <Screen
@@ -140,32 +125,29 @@ export function SearchResultsScreen({ query, results, nextPageToken, onPick, onB
     >
       <box style={{ flexDirection: "column", flexGrow: 1 }}>
         {visibleItems.map((video, index) => renderRow(video, windowStart + index))}
-        {extraRowVisible ? (
+        {loadMoreRowVisible ? (
           <box
             style={{
               flexDirection: "row",
               height: 1,
               alignItems: "center",
               paddingLeft: 1,
-              backgroundColor: extraRowActive ? palette.surfaceRaised : "transparent",
+              backgroundColor: loadMoreRowActive ? palette.surfaceRaised : "transparent",
             }}
           >
-            <text fg={extraRowActive ? palette.accentBright : "transparent"}>❯ </text>
-            {loadingMore ? (
+            <text fg={loadMoreRowActive ? palette.accentBright : "transparent"}>❯ </text>
+            {moreStatus.kind === "loading" ? (
               <Spinner label={t("searchResults.loadingMore")} />
             ) : (
-              <text fg={extraRowActive ? palette.gold : palette.dim}>
+              <text fg={loadMoreRowActive ? palette.gold : palette.dim}>
                 ▸ {t("searchResults.loadMore")}
               </text>
             )}
           </box>
         ) : undefined}
       </box>
-      {loadError !== undefined ? (
-        <text>
-          <span fg={palette.red}>✕ </span>
-          <span fg={palette.red}>{loadError}</span>
-        </text>
+      {moreStatus.kind === "error" ? (
+        <ErrorLine message={moreStatus.message} />
       ) : (
         <text fg={palette.dimmer}>{t("searchResults.hint")}</text>
       )}

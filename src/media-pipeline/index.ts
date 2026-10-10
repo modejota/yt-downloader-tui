@@ -1,21 +1,14 @@
 import { Conversion, FilePathTarget, Output } from "mediabunny";
 
 import { DomainError } from "@/errors/domain-error";
-import type { FormatCandidate } from "@/domain/media";
 import type { ConversionProgress, ConversionSpec, MediaPipeline } from "@/domain/ports";
 
-import {
-  pickOutputFormat,
-  requireAudioTrack,
-  resolveAudioConversionPlan,
-  toTrimOption,
-} from "@/media-pipeline/conversion-plan";
+import { planAudioConversion } from "@/media-pipeline/conversion-plan";
 import { createProgressChannel } from "@/media-pipeline/progress-channel";
 import { ensureCodecsRegistered, openStreamedInput } from "@/media-pipeline/streamed-input";
-import { prepareTagging } from "@/media-pipeline/tagging";
+import { fetchMetadataTags } from "@/media-pipeline/tagging";
 
 type PushProgress = (event: ConversionProgress) => void;
-type Cancelable = { readonly cancel: () => Promise<void> };
 
 export function createMediaPipeline(): MediaPipeline {
   return { convert };
@@ -28,101 +21,64 @@ async function* convert(
   await ensureCodecsRegistered();
 
   const channel = createProgressChannel<ConversionProgress>();
-  runConversion(spec, channel.push, signal).then(
-    () => channel.finish(),
-    (cause: unknown) => channel.finish(signal.aborted ? cause : toDomainError(cause)),
+  runConversion(spec, channel.push, signal).then(channel.close, (cause: unknown) =>
+    channel.fail(signal.aborted ? cause : toDomainError(cause)),
   );
 
   yield* channel.stream();
 }
 
+/** One stream in, one file out: the audio track of a progressive or audio-only source. */
 async function runConversion(
   spec: ConversionSpec,
   push: PushProgress,
   signal: AbortSignal,
 ): Promise<void> {
-  await convertCombined(spec, spec.source.format, push, signal);
-  push({ stage: "done", outputPath: spec.destinationPath });
-}
-
-/** One stream in, one file out: the audio track of a progressive or audio-only source. */
-async function convertCombined(
-  spec: ConversionSpec,
-  candidate: FormatCandidate,
-  push: PushProgress,
-  signal: AbortSignal,
-): Promise<void> {
-  let bytesReceived = 0;
-  let bytesTotal: number | undefined;
-  const input = await openStreamedInput(candidate, signal, (chunkBytes, totalBytes) => {
-    bytesReceived += chunkBytes;
-    bytesTotal = totalBytes;
-    push({ stage: "downloading", bytesReceived, bytesTotal });
-  });
+  const input = await openStreamedInput(spec.source, signal, (bytesReceived, bytesTotal) =>
+    push({ stage: "downloading", bytesReceived, bytesTotal }),
+  );
 
   try {
+    const plan = planAudioConversion(spec.source, spec.selection);
     const output = new Output({
-      format: pickOutputFormat(spec.selection),
+      format: plan.outputFormat,
       target: new FilePathTarget(spec.destinationPath),
     });
-    const trim = toTrimOption(spec.selection.trim);
-
-    const { audioCodec, bitrateBps } = requireAudioTrack(candidate);
-    const plan = resolveAudioConversionPlan(audioCodec, bitrateBps, spec.selection);
     const conversion = await Conversion.init({
       input,
       output,
-      audio: plan.options,
+      audio: plan.audio,
       video: { discard: true },
-      trim,
+      trim: plan.trim,
       composable: true,
     });
+    if (!conversion.isValid) {
+      const reasons = conversion.discardedTracks.map((discarded) => discarded.reason).join(", ");
+      throw new DomainError("conversion", "Could not prepare the media conversion.", { reasons });
+    }
+    conversion.onProgress = (ratio) => push({ stage: "converting", ratio, mode: plan.mode });
 
-    assertConversionValid(conversion);
-    conversion.onProgress = (ratio) => {
-      push({ stage: "converting", ratio, mode: plan.isRemux ? "remux" : "transcode" });
-    };
+    // mediabunny only accepts metadata before the output starts, so tagging is reported up front.
+    if (spec.metadata !== undefined) {
+      push({ stage: "tagging" });
+      output.setMetadataTags(await fetchMetadataTags(spec.metadata, signal));
+    }
 
-    await tagAndFinalize(output, [conversion], spec, push, signal);
+    // Wire the AbortSignal to mediabunny's own cancel() so an in-flight conversion stops promptly.
+    const cancel = () => void Promise.all([conversion.cancel(), output.cancel()]);
+    signal.addEventListener("abort", cancel, { once: true });
+    try {
+      await output.start();
+      await conversion.execute();
+      await output.finalize();
+    } finally {
+      signal.removeEventListener("abort", cancel);
+    }
   } finally {
     input.dispose();
   }
-}
 
-/** Metadata must be set before the output starts (mediabunny requirement). */
-async function tagAndFinalize(
-  output: Output,
-  conversions: readonly Conversion[],
-  spec: ConversionSpec,
-  push: PushProgress,
-  signal: AbortSignal,
-): Promise<void> {
-  if (spec.metadata !== undefined) push({ stage: "tagging" });
-  await prepareTagging(output, spec, signal);
-
-  const detach = cancelOnAbort(signal, [...conversions, output]);
-  try {
-    await output.start();
-    await Promise.all(conversions.map((conversion) => conversion.execute()));
-    await output.finalize();
-  } finally {
-    detach();
-  }
-}
-
-function assertConversionValid(conversion: Conversion): void {
-  if (conversion.isValid) return;
-  const reasons = conversion.discardedTracks.map((discarded) => discarded.reason).join(", ");
-  throw new DomainError("conversion", "Could not prepare the media conversion.", { reasons });
-}
-
-/** Wires an AbortSignal to mediabunny's own cancel() so an in-flight conversion stops promptly. */
-function cancelOnAbort(signal: AbortSignal, cancelables: readonly Cancelable[]): () => void {
-  const onAbort = () => {
-    for (const cancelable of cancelables) void cancelable.cancel();
-  };
-  signal.addEventListener("abort", onAbort, { once: true });
-  return () => signal.removeEventListener("abort", onAbort);
+  push({ stage: "done", outputPath: spec.destinationPath });
 }
 
 function toDomainError(cause: unknown): DomainError {

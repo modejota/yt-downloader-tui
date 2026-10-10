@@ -40,8 +40,6 @@ export interface ExtractionService {
   getFormatCandidates(videoId: VideoId, signal: AbortSignal): Promise<readonly FormatCandidate[]>;
 }
 
-export type ConversionSource = { readonly role: "combined"; readonly format: FormatCandidate };
-
 export type EmbeddedMetadata = {
   readonly title: string;
   readonly artist: string;
@@ -49,7 +47,7 @@ export type EmbeddedMetadata = {
 };
 
 export type ConversionSpec = {
-  readonly source: ConversionSource;
+  readonly source: FormatCandidate;
   readonly selection: MediaSelection;
   readonly destinationPath: string;
   readonly metadata: EmbeddedMetadata | undefined;

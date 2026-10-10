@@ -36,7 +36,13 @@ bun start
 
 ## Building a standalone binary
 
-`bun build --compile` produces a single native executable with the Bun runtime baked in — no `bun` or `node` install required to run it.
+`scripts/build.ts` uses `bun build --compile` to produce a single self-contained executable with the Bun runtime and the FFmpeg codec addon baked in — no `bun`, `node`, or extra files required to run it.
+
+Building for a platform other than your own needs that platform's native packages, which `bun install` skips by default. Install every platform's packages first:
+
+```bash
+bun install --os="*" --cpu="*"
+```
 
 ```bash
 bun run build                 # current platform

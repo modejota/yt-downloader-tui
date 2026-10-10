@@ -9,41 +9,41 @@ import {
   mapSearchResult,
   parseYoutubeSourceUrl,
 } from "@/extraction/mapping";
-import type { PlaylistId, VideoId } from "@/domain/media";
+import { createPlaylistId, createVideoId } from "@/domain/media";
 
 describe("parseYoutubeSourceUrl", () => {
   it("recognizes a watch URL as a video", () => {
     expect(parseYoutubeSourceUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toEqual({
       kind: "video",
-      videoId: "dQw4w9WgXcQ",
+      videoId: createVideoId("dQw4w9WgXcQ"),
     });
   });
 
   it("recognizes a youtu.be short link as a video", () => {
     expect(parseYoutubeSourceUrl("https://youtu.be/dQw4w9WgXcQ")).toEqual({
       kind: "video",
-      videoId: "dQw4w9WgXcQ",
+      videoId: createVideoId("dQw4w9WgXcQ"),
     });
   });
 
   it("recognizes a shorts URL as a video", () => {
     expect(parseYoutubeSourceUrl("https://www.youtube.com/shorts/abc123")).toEqual({
       kind: "video",
-      videoId: "abc123",
+      videoId: createVideoId("abc123"),
     });
   });
 
   it("recognizes a playlist URL as a playlist", () => {
     expect(parseYoutubeSourceUrl("https://www.youtube.com/playlist?list=PLabc123")).toEqual({
       kind: "playlist",
-      playlistId: "PLabc123",
+      playlistId: createPlaylistId("PLabc123"),
     });
   });
 
   it("treats a watch URL carrying a list= param as a playlist", () => {
     expect(
       parseYoutubeSourceUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabc123"),
-    ).toEqual({ kind: "playlist", playlistId: "PLabc123" });
+    ).toEqual({ kind: "playlist", playlistId: createPlaylistId("PLabc123") });
   });
 
   it("returns undefined for a non-YouTube URL", () => {
@@ -57,11 +57,11 @@ describe("parseYoutubeSourceUrl", () => {
 
 describe("isMixPlaylistId", () => {
   it("flags RD-prefixed ids as Mix/Radio playlists", () => {
-    expect(isMixPlaylistId("RDdQw4w9WgXcQ")).toBe(true);
+    expect(isMixPlaylistId(createPlaylistId("RDdQw4w9WgXcQ"))).toBe(true);
   });
 
   it("does not flag a regular playlist id", () => {
-    expect(isMixPlaylistId("PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI")).toBe(false);
+    expect(isMixPlaylistId(createPlaylistId("PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"))).toBe(false);
   });
 });
 
@@ -77,10 +77,10 @@ describe("mapBasicVideoInfo", () => {
       thumbnail: [{ url: "https://i.ytimg.com/vi_webp/dQw4w9WgXcQ/maxresdefault.webp" }],
     };
 
-    const video = mapBasicVideoInfo(raw, "dQw4w9WgXcQ" as VideoId);
+    const video = mapBasicVideoInfo(raw, createVideoId("dQw4w9WgXcQ"));
 
     expect(video).toEqual({
-      id: "dQw4w9WgXcQ" as VideoId,
+      id: createVideoId("dQw4w9WgXcQ"),
       title: "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
       channelName: "Rick Astley",
       durationSeconds: 213,
@@ -93,10 +93,10 @@ describe("mapBasicVideoInfo", () => {
   it("falls back safely when optional fields are missing", () => {
     const raw = { channel: null };
 
-    const video = mapBasicVideoInfo(raw, "abc" as VideoId);
+    const video = mapBasicVideoInfo(raw, createVideoId("abc"));
 
     expect(video).toEqual({
-      id: "abc" as VideoId,
+      id: createVideoId("abc"),
       title: "",
       channelName: "",
       durationSeconds: 0,
@@ -121,7 +121,7 @@ describe("mapSearchResult", () => {
     };
 
     expect(mapSearchResult(raw)).toEqual({
-      id: "n61ULEU7CO0" as VideoId,
+      id: createVideoId("n61ULEU7CO0"),
       title: "Best of lofi hip hop 2021",
       channelName: "Lofi Girl",
       durationSeconds: 22258,
@@ -148,11 +148,11 @@ describe("mapPlaylistInfo", () => {
   it("parses the video count out of the formatted total_items text", () => {
     const playlist = mapPlaylistInfo(
       { title: "Uploads from Rick Astley", total_items: "436 videos" },
-      "UUuAXFkgsw1L7xaCfnd5JJOw" as PlaylistId,
+      createPlaylistId("UUuAXFkgsw1L7xaCfnd5JJOw"),
     );
 
     expect(playlist).toEqual({
-      id: "UUuAXFkgsw1L7xaCfnd5JJOw" as PlaylistId,
+      id: createPlaylistId("UUuAXFkgsw1L7xaCfnd5JJOw"),
       title: "Uploads from Rick Astley",
       videoCount: 436,
     });
@@ -181,7 +181,7 @@ describe("mapPlaylistItem", () => {
     };
 
     expect(mapPlaylistItem(raw)).toEqual({
-      id: "JjI4o2w6D5A" as VideoId,
+      id: createVideoId("JjI4o2w6D5A"),
       title: "We had a fantastic time in Cologne",
       channelName: "Rick Astley",
       durationSeconds: 21,
@@ -200,7 +200,7 @@ describe("mapPlaylistItem", () => {
     };
 
     expect(mapPlaylistItem(raw)).toEqual({
-      id: "6Ov-5W2nb28" as VideoId,
+      id: createVideoId("6Ov-5W2nb28"),
       title: "Some Video",
       channelName: "Some Channel",
       durationSeconds: 125,

@@ -3,12 +3,11 @@ import { useKeyboard } from "@opentui/react";
 import { useTranslation } from "react-i18next";
 
 import type { Playlist } from "@/domain/media";
-import { DomainError } from "@/errors/domain-error";
-import { toHumanMessage } from "@/errors/human-message";
 import { ensureWritable, resolveDestination, resolveDownloadDirectory } from "@/filesystem/index";
 import { outputExtension } from "@/ui/format-options";
 import { palette, inputStyle } from "@/ui/theme";
-import { Card, Screen, Spinner } from "@/ui/components/chrome";
+import { Card, ErrorLine, Screen, Spinner } from "@/ui/components/chrome";
+import { failureMessage } from "@/errors/human-message";
 import { onSubmitString } from "@/ui/opentui-input-fix";
 import { useServices } from "@/ui/services-context";
 import type { VideoSelectionPair } from "@/ui/screens/playlist-format-flow";
@@ -63,11 +62,10 @@ export function PlaylistDestinationScreen({ playlist, pairs, onDone, onBack }: P
 
       onDone(pairs.length);
     } catch (cause) {
-      const message =
-        cause instanceof DomainError
-          ? toHumanMessage(cause)
-          : t("playlistDestination.genericError");
-      setStatus({ kind: "error", message });
+      setStatus({
+        kind: "error",
+        message: failureMessage(cause, t("playlistDestination.genericError")),
+      });
     }
   }
 
@@ -96,12 +94,7 @@ export function PlaylistDestinationScreen({ playlist, pairs, onDone, onBack }: P
         />
       </Card>
       {status.kind === "busy" ? <Spinner label={t("playlistDestination.preparing")} /> : undefined}
-      {status.kind === "error" ? (
-        <text>
-          <span fg={palette.red}>✕ </span>
-          <span fg={palette.red}>{status.message}</span>
-        </text>
-      ) : undefined}
+      {status.kind === "error" ? <ErrorLine message={status.message} /> : undefined}
     </Screen>
   );
 }

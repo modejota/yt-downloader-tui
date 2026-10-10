@@ -2,9 +2,13 @@ import path from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
-import type { FormatCandidate, MediaSelection, Video, VideoId } from "@/domain/media";
+import {
+  createVideoId,
+  type FormatCandidate,
+  type MediaSelection,
+  type Video,
+} from "@/domain/media";
 import type {
-  Destination,
   DownloadJob,
   DownloadJobId,
   DownloadJobState,
@@ -17,18 +21,6 @@ import { toHumanMessage } from "@/errors/human-message";
 import { createDownloadQueue } from "@/download-queue/queue";
 import type { DownloadQueue, Unsubscribe } from "@/download-queue/queue";
 
-function video(id: string): Video {
-  return {
-    id: id as VideoId,
-    title: `Video ${id}`,
-    channelName: "Channel",
-    durationSeconds: 120,
-    viewCount: 100,
-    likeCount: undefined,
-    thumbnailUrl: undefined,
-  };
-}
-
 const selection: MediaSelection = {
   kind: "audio",
   format: "mp3",
@@ -37,8 +29,22 @@ const selection: MediaSelection = {
   trim: undefined,
 };
 
-function destination(fileName: string): Destination {
-  return { directoryPath: "/downloads", fileName };
+function enqueue(queue: DownloadQueue, videoId: string, fileName: string): DownloadJobId {
+  const video: Video = {
+    id: createVideoId(videoId),
+    title: `Video ${videoId}`,
+    channelName: "Channel",
+    durationSeconds: 120,
+    viewCount: 100,
+    likeCount: undefined,
+    thumbnailUrl: undefined,
+  };
+  return queue.enqueue({
+    video,
+    selection,
+    destination: { directoryPath: "/downloads", fileName },
+    embedMetadata: false,
+  });
 }
 
 function audioCandidate(): FormatCandidate {
@@ -58,13 +64,19 @@ function notUsed(): never {
   throw new Error("not used by these tests");
 }
 
-function extractionResolvingTo(candidates: readonly FormatCandidate[]): ExtractionService {
+function extractionWith(
+  getFormatCandidates: ExtractionService["getFormatCandidates"],
+): ExtractionService {
   return {
     resolveSource: (): Promise<ResolvedSource> => notUsed(),
     search: () => notUsed(),
     listPlaylistItems: () => notUsed(),
-    getFormatCandidates: () => Promise.resolve(candidates),
+    getFormatCandidates,
   };
+}
+
+function extractionResolvingTo(candidates: readonly FormatCandidate[]): ExtractionService {
+  return extractionWith(() => Promise.resolve(candidates));
 }
 
 /** A MediaPipeline whose `convert` immediately yields a fixed downloading/converting/done sequence. */
@@ -118,12 +130,7 @@ describe("createDownloadQueue", () => {
     const statuses: DownloadJobState["status"][] = [];
     const queue = createDownloadQueue({ extraction, mediaPipeline, maxConcurrentDownloads: 1 });
 
-    const id = queue.enqueue({
-      video: video("v1"),
-      selection,
-      destination: destination("out.mp3"),
-      embedMetadata: false,
-    });
+    const id = enqueue(queue, "v1", "out.mp3");
     queue.subscribe((snapshot) => {
       const job = snapshot.jobs.find((candidate) => candidate.id === id);
       if (job !== undefined) statuses.push(job.state.status);
@@ -154,12 +161,7 @@ describe("createDownloadQueue", () => {
     const queue = createDownloadQueue({ extraction, mediaPipeline, maxConcurrentDownloads: 2 });
 
     const [idA, idB, idC] = ["a.mp3", "b.mp3", "c.mp3"].map((fileName) =>
-      queue.enqueue({
-        video: video(fileName),
-        selection,
-        destination: destination(fileName),
-        embedMetadata: false,
-      }),
+      enqueue(queue, fileName, fileName),
     );
     if (idA === undefined || idB === undefined || idC === undefined) throw new Error("setup");
 
@@ -181,16 +183,11 @@ describe("createDownloadQueue", () => {
 
   it("retries a network DomainError up to the retry budget and then succeeds", async () => {
     let calls = 0;
-    const extraction: ExtractionService = {
-      resolveSource: (): Promise<ResolvedSource> => notUsed(),
-      search: () => notUsed(),
-      listPlaylistItems: () => notUsed(),
-      getFormatCandidates: () => {
-        calls += 1;
-        if (calls < 4) return Promise.reject(new DomainError("network", "boom"));
-        return Promise.resolve([audioCandidate()]);
-      },
-    };
+    const extraction = extractionWith(() => {
+      calls += 1;
+      if (calls < 4) return Promise.reject(new DomainError("network", "boom"));
+      return Promise.resolve([audioCandidate()]);
+    });
     const delays: number[] = [];
     const queue = createDownloadQueue({
       extraction,
@@ -199,12 +196,7 @@ describe("createDownloadQueue", () => {
       delay: immediateDelay(delays),
     });
 
-    const id = queue.enqueue({
-      video: video("v1"),
-      selection,
-      destination: destination("out.mp3"),
-      embedMetadata: false,
-    });
+    const id = enqueue(queue, "v1", "out.mp3");
     const completed = await waitForStatus(queue, id, "completed");
 
     expect(completed.state.status).toBe("completed");
@@ -214,15 +206,10 @@ describe("createDownloadQueue", () => {
 
   it("moves to error after exhausting the retry budget on repeated network failures", async () => {
     let calls = 0;
-    const extraction: ExtractionService = {
-      resolveSource: (): Promise<ResolvedSource> => notUsed(),
-      search: () => notUsed(),
-      listPlaylistItems: () => notUsed(),
-      getFormatCandidates: () => {
-        calls += 1;
-        return Promise.reject(new DomainError("network", "boom"));
-      },
-    };
+    const extraction = extractionWith(() => {
+      calls += 1;
+      return Promise.reject(new DomainError("network", "boom"));
+    });
     const queue = createDownloadQueue({
       extraction,
       mediaPipeline: scriptedMediaPipeline(),
@@ -230,12 +217,7 @@ describe("createDownloadQueue", () => {
       delay: immediateDelay(),
     });
 
-    const id = queue.enqueue({
-      video: video("v1"),
-      selection,
-      destination: destination("out.mp3"),
-      embedMetadata: false,
-    });
+    const id = enqueue(queue, "v1", "out.mp3");
     const errored = await waitForStatus(queue, id, "error");
 
     expect(calls).toBe(4);
@@ -247,15 +229,10 @@ describe("createDownloadQueue", () => {
 
   it("fails immediately without retrying on a non-network DomainError", async () => {
     let calls = 0;
-    const extraction: ExtractionService = {
-      resolveSource: (): Promise<ResolvedSource> => notUsed(),
-      search: () => notUsed(),
-      listPlaylistItems: () => notUsed(),
-      getFormatCandidates: () => {
-        calls += 1;
-        return Promise.reject(new DomainError("video-unavailable", "gone"));
-      },
-    };
+    const extraction = extractionWith(() => {
+      calls += 1;
+      return Promise.reject(new DomainError("video-unavailable", "gone"));
+    });
     const queue = createDownloadQueue({
       extraction,
       mediaPipeline: scriptedMediaPipeline(),
@@ -263,12 +240,7 @@ describe("createDownloadQueue", () => {
       delay: immediateDelay(),
     });
 
-    const id = queue.enqueue({
-      video: video("v1"),
-      selection,
-      destination: destination("out.mp3"),
-      embedMetadata: false,
-    });
+    const id = enqueue(queue, "v1", "out.mp3");
     const errored = await waitForStatus(queue, id, "error");
 
     expect(calls).toBe(1);
@@ -279,12 +251,7 @@ describe("createDownloadQueue", () => {
   });
 
   it("fails immediately with a generic message on a non-DomainError throw", async () => {
-    const extraction: ExtractionService = {
-      resolveSource: (): Promise<ResolvedSource> => notUsed(),
-      search: () => notUsed(),
-      listPlaylistItems: () => notUsed(),
-      getFormatCandidates: () => Promise.reject(new Error("unexpected")),
-    };
+    const extraction = extractionWith(() => Promise.reject(new Error("unexpected")));
     const queue = createDownloadQueue({
       extraction,
       mediaPipeline: scriptedMediaPipeline(),
@@ -292,12 +259,7 @@ describe("createDownloadQueue", () => {
       delay: immediateDelay(),
     });
 
-    const id = queue.enqueue({
-      video: video("v1"),
-      selection,
-      destination: destination("out.mp3"),
-      embedMetadata: false,
-    });
+    const id = enqueue(queue, "v1", "out.mp3");
     const errored = await waitForStatus(queue, id, "error");
 
     expect(errored.state).toEqual({
@@ -309,15 +271,10 @@ describe("createDownloadQueue", () => {
   it("cancels a pending job without ever starting it", async () => {
     const gates = new Map<string, () => void>();
     let getFormatCandidatesCalls = 0;
-    const extraction: ExtractionService = {
-      resolveSource: (): Promise<ResolvedSource> => notUsed(),
-      search: () => notUsed(),
-      listPlaylistItems: () => notUsed(),
-      getFormatCandidates: () => {
-        getFormatCandidatesCalls += 1;
-        return Promise.resolve([audioCandidate()]);
-      },
-    };
+    const extraction = extractionWith(() => {
+      getFormatCandidatesCalls += 1;
+      return Promise.resolve([audioCandidate()]);
+    });
     const mediaPipeline: MediaPipeline = {
       async *convert(spec) {
         yield { stage: "downloading", bytesReceived: 0, bytesTotal: undefined };
@@ -327,18 +284,8 @@ describe("createDownloadQueue", () => {
     };
     const queue = createDownloadQueue({ extraction, mediaPipeline, maxConcurrentDownloads: 1 });
 
-    const runningId = queue.enqueue({
-      video: video("running"),
-      selection,
-      destination: destination("running.mp3"),
-      embedMetadata: false,
-    });
-    const pendingId = queue.enqueue({
-      video: video("pending"),
-      selection,
-      destination: destination("pending.mp3"),
-      embedMetadata: false,
-    });
+    const runningId = enqueue(queue, "running", "running.mp3");
+    const pendingId = enqueue(queue, "pending", "pending.mp3");
     await waitForStatus(queue, runningId, "downloading");
 
     queue.cancel(pendingId);
@@ -363,12 +310,7 @@ describe("createDownloadQueue", () => {
     };
     const queue = createDownloadQueue({ extraction, mediaPipeline, maxConcurrentDownloads: 1 });
 
-    const id = queue.enqueue({
-      video: video("v1"),
-      selection,
-      destination: destination("out.mp3"),
-      embedMetadata: false,
-    });
+    const id = enqueue(queue, "v1", "out.mp3");
     await waitForStatus(queue, id, "downloading");
 
     queue.cancel(id);
@@ -386,16 +328,12 @@ describe("createDownloadQueue", () => {
       maxConcurrentDownloads: 1,
     });
 
-    const id = queue.enqueue({
-      video: video("v1"),
-      selection,
-      destination: destination("out.mp3"),
-      embedMetadata: false,
-    });
+    const id = enqueue(queue, "v1", "out.mp3");
     const completed = await waitForStatus(queue, id, "completed");
     expect(completed.state.status).toBe("completed");
 
     expect(() => queue.cancel(id)).not.toThrow();
+    // SAFETY: deliberately forges an id the queue never issued, to exercise the unknown-id guard.
     expect(() => queue.cancel("does-not-exist" as DownloadJobId)).not.toThrow();
   });
 
@@ -415,12 +353,7 @@ describe("createDownloadQueue", () => {
     expect(snapshotsA).toHaveLength(1);
     expect(snapshotsB).toHaveLength(1);
 
-    const id = queue.enqueue({
-      video: video("v1"),
-      selection,
-      destination: destination("out.mp3"),
-      embedMetadata: false,
-    });
+    const id = enqueue(queue, "v1", "out.mp3");
     await waitForStatus(queue, id, "completed");
 
     expect(snapshotsA.length).toBeGreaterThan(1);
@@ -428,12 +361,7 @@ describe("createDownloadQueue", () => {
 
     unsubscribeA();
     const countAAfterUnsubscribe = snapshotsA.length;
-    const id2 = queue.enqueue({
-      video: video("v2"),
-      selection,
-      destination: destination("out2.mp3"),
-      embedMetadata: false,
-    });
+    const id2 = enqueue(queue, "v2", "out2.mp3");
     await waitForStatus(queue, id2, "completed");
 
     expect(snapshotsA.length).toBe(countAAfterUnsubscribe);

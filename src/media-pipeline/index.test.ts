@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { ALL_FORMATS, FilePathSource, Input } from "mediabunny";
 
-import type { ConversionSpec } from "@/domain/ports";
+import type { ConversionProgress, ConversionSpec, EmbeddedMetadata } from "@/domain/ports";
 import { createMediaPipeline } from "@/media-pipeline/index";
 
 /** Builds a tiny, valid, uncompressed WAV file: silence is enough to exercise the codec pipeline. */
@@ -86,6 +86,39 @@ function serveOnce(bytes: Uint8Array, contentType: string) {
   return { url: `http://localhost:${server.port}/asset`, stop: () => server.stop(true) };
 }
 
+/** Runs the real pipeline on a 64 kbps CBR MP3 selection and collects every progress event. */
+async function convertToMp3(
+  sourceUrl: string,
+  destinationPath: string,
+  metadata: EmbeddedMetadata | undefined,
+): Promise<ConversionProgress[]> {
+  const spec: ConversionSpec = {
+    source: {
+      role: "audio-only",
+      formatId: "test-audio",
+      url: sourceUrl,
+      container: "webm",
+      audioCodec: "opus",
+      bitrateBps: 128000,
+      approximateSizeBytes: undefined,
+    },
+    selection: {
+      kind: "audio",
+      format: "mp3",
+      bitrateKbps: 64,
+      qualityMode: "cbr",
+      trim: undefined,
+    },
+    destinationPath,
+    metadata,
+  };
+  const events: ConversionProgress[] = [];
+  for await (const event of createMediaPipeline().convert(spec, new AbortController().signal)) {
+    events.push(event);
+  }
+  return events;
+}
+
 describe("media-pipeline module", () => {
   let tempDir: string;
 
@@ -101,39 +134,9 @@ describe("media-pipeline module", () => {
     const source = serveInChunks(buildSyntheticWav());
     const destinationPath = path.join(tempDir, "output.mp3");
 
-    const spec: ConversionSpec = {
-      source: {
-        role: "combined",
-        format: {
-          role: "audio-only",
-          formatId: "test-audio",
-          url: source.url,
-          container: "webm",
-          audioCodec: "opus",
-          bitrateBps: 128000,
-          approximateSizeBytes: undefined,
-        },
-      },
-      selection: {
-        kind: "audio",
-        format: "mp3",
-        bitrateKbps: 64,
-        qualityMode: "cbr",
-        trim: undefined,
-      },
-      destinationPath,
-      metadata: undefined,
-    };
-
-    const pipeline = createMediaPipeline();
-    const events = [];
-    try {
-      for await (const event of pipeline.convert(spec, new AbortController().signal)) {
-        events.push(event);
-      }
-    } finally {
-      source.stop();
-    }
+    const events = await convertToMp3(source.url, destinationPath, undefined).finally(() =>
+      source.stop(),
+    );
 
     expect(events.some((event) => event.stage === "downloading")).toBe(true);
     const convertingEvents = events.filter((event) => event.stage === "converting");
@@ -162,40 +165,14 @@ describe("media-pipeline module", () => {
     const thumbnail = serveOnce(new Uint8Array([1, 2, 3, 4, 5]), "image/jpeg");
     const destinationPath = path.join(tempDir, "output.mp3");
 
-    const spec: ConversionSpec = {
-      source: {
-        role: "combined",
-        format: {
-          role: "audio-only",
-          formatId: "test-audio",
-          url: source.url,
-          container: "webm",
-          audioCodec: "opus",
-          bitrateBps: 128000,
-          approximateSizeBytes: undefined,
-        },
-      },
-      selection: {
-        kind: "audio",
-        format: "mp3",
-        bitrateKbps: 64,
-        qualityMode: "cbr",
-        trim: undefined,
-      },
-      destinationPath,
-      metadata: { title: "Test Title", artist: "Test Channel", thumbnailUrl: thumbnail.url },
-    };
-
-    const pipeline = createMediaPipeline();
-    const events = [];
-    try {
-      for await (const event of pipeline.convert(spec, new AbortController().signal)) {
-        events.push(event);
-      }
-    } finally {
+    const events = await convertToMp3(source.url, destinationPath, {
+      title: "Test Title",
+      artist: "Test Channel",
+      thumbnailUrl: thumbnail.url,
+    }).finally(() => {
       source.stop();
       thumbnail.stop();
-    }
+    });
 
     expect(events.some((event) => event.stage === "tagging")).toBe(true);
     expect(events.at(-1)).toEqual({ stage: "done", outputPath: destinationPath });

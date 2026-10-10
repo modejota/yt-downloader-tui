@@ -4,25 +4,44 @@ import { useKeyboard } from "@opentui/react";
 import { palette, inputStyle } from "@/ui/theme";
 import { onSubmitString } from "@/ui/opentui-input-fix";
 
-export type ChoiceRow = {
+/** One option of a choice row; it knows whether it is the current value and how to become it. */
+export type Choice = {
+  readonly label: string;
+  readonly selected: boolean;
+  readonly select: () => void;
+};
+
+/** Lists `values` as choices, marking `current` and reporting the picked value to `select`. */
+export function choicesOf<Value>(
+  values: readonly Value[],
+  current: Value,
+  describe: (value: Value) => string,
+  select: (value: Value) => void,
+): Choice[] {
+  return values.map((value) => ({
+    label: describe(value),
+    selected: value === current,
+    select: () => select(value),
+  }));
+}
+
+type ChoiceRow = {
   readonly kind: "choice";
   readonly id: string;
   readonly label: string;
-  readonly choices: readonly string[];
-  readonly selectedIndex: number;
-  readonly onChange: (index: number) => void;
+  readonly choices: readonly Choice[];
 };
 
-export type InputRow = {
+type InputRow = {
   readonly kind: "input";
   readonly id: string;
   readonly label: string;
   readonly value: string;
-  readonly placeholder?: string;
-  readonly onSubmit?: (value: string) => void;
+  readonly placeholder: string;
+  readonly onSubmit: (value: string) => void;
 };
 
-export type ActionRow = {
+type ActionRow = {
   readonly kind: "action";
   readonly id: string;
   readonly label: string;
@@ -33,39 +52,35 @@ export type ActionRow = {
 type InfoRow = {
   readonly kind: "info";
   readonly text: string;
-  readonly tone?: "dim" | "error" | "gold";
+  readonly tone: "dim" | "error";
 };
 
 type HeadingRow = { readonly kind: "heading"; readonly label: string };
 
 export type FormRow = ChoiceRow | InputRow | ActionRow | InfoRow | HeadingRow;
 
+type InteractiveRow = ChoiceRow | InputRow | ActionRow;
+
 const LABEL_COLUMN_WIDTH = 16;
 
-function isInteractive(row: FormRow): row is ChoiceRow | InputRow | ActionRow {
+function isInteractive(row: FormRow): row is InteractiveRow {
   return row.kind === "choice" || row.kind === "input" || row.kind === "action";
 }
 
 export function Form({ rows }: { readonly rows: readonly FormRow[] }) {
-  const interactiveIds: string[] = [];
-  for (const row of rows) {
-    if (isInteractive(row)) interactiveIds.push(row.id);
-  }
-  const [activeId, setActiveId] = useState<string | undefined>(interactiveIds[0]);
-  const current =
-    activeId !== undefined && interactiveIds.includes(activeId) ? activeId : interactiveIds[0];
+  const interactiveRows = rows.filter(isInteractive);
+  const [activeId, setActiveId] = useState(interactiveRows[0]?.id);
+  // Rows come and go (e.g. trim inputs); a vanished active row hands focus back to the first one.
+  const active = interactiveRows.find((row) => row.id === activeId) ?? interactiveRows[0];
 
   function move(direction: 1 | -1): void {
-    if (interactiveIds.length === 0) return;
-    const index = current === undefined ? 0 : interactiveIds.indexOf(current);
-    const next = (index + direction + interactiveIds.length) % interactiveIds.length;
-    setActiveId(interactiveIds[next] ?? current);
+    if (active === undefined) return;
+    const index = interactiveRows.indexOf(active);
+    setActiveId(interactiveRows.at((index + direction) % interactiveRows.length)?.id);
   }
 
   useKeyboard((key) => {
-    if (key.ctrl) return;
-    const row = rows.find((candidate) => isInteractive(candidate) && candidate.id === current);
-    if (row === undefined) return;
+    if (key.ctrl || active === undefined) return;
 
     if (key.name === "up" || (key.name === "tab" && key.shift)) {
       move(-1);
@@ -75,37 +90,32 @@ export function Form({ rows }: { readonly rows: readonly FormRow[] }) {
       move(1);
       return;
     }
-    if (key.name === "home" && interactiveIds[0] !== undefined) {
-      setActiveId(interactiveIds[0]);
+    if (key.name === "home") {
+      setActiveId(interactiveRows[0]?.id);
       return;
     }
     if (key.name === "end") {
-      const last = interactiveIds.at(-1);
-      if (last !== undefined) setActiveId(last);
+      setActiveId(interactiveRows.at(-1)?.id);
       return;
     }
 
-    if (row.kind === "choice" && row.choices.length > 0) {
-      if (key.name === "left") {
-        row.onChange((row.selectedIndex - 1 + row.choices.length) % row.choices.length);
-        return;
-      }
-      if (key.name === "right") {
-        row.onChange((row.selectedIndex + 1) % row.choices.length);
-        return;
-      }
+    if (active.kind === "choice" && (key.name === "left" || key.name === "right")) {
+      const index = active.choices.findIndex((choice) => choice.selected);
+      const step = key.name === "left" ? -1 : 1;
+      active.choices.at((index + step) % active.choices.length)?.select();
+      return;
     }
 
     if (key.name === "return") {
       // Input rows: the focused <input> commits through its own onSubmit.
-      if (row.kind === "action") row.onTrigger();
-      else if (row.kind === "choice") move(1);
+      if (active.kind === "action") active.onTrigger();
+      else if (active.kind === "choice") move(1);
     }
   });
 
   return (
     <box style={{ flexDirection: "column" }}>
-      {rows.map((row, index) => renderRow(row, index, current, move))}
+      {rows.map((row, index) => renderRow(row, index, active?.id, move))}
     </box>
   );
 }
@@ -126,95 +136,81 @@ function renderRow(
   }
 
   if (row.kind === "info") {
-    const tone =
-      row.tone === "error" ? palette.red : row.tone === "gold" ? palette.gold : palette.dimmer;
     return (
-      <text key={index} fg={tone}>
+      <text key={index} fg={row.tone === "error" ? palette.red : palette.dimmer}>
         {row.text}
       </text>
     );
   }
 
   const focused = row.id === activeId;
-  const marker = (
-    <box style={{ width: 2 }}>
-      <text fg={focused ? palette.accent : "transparent"}>❯ </text>
-    </box>
-  );
-  const labelBox = (
-    <box style={{ width: LABEL_COLUMN_WIDTH }}>
-      <text fg={focused ? palette.accentBright : palette.dim}>{row.label}</text>
-    </box>
-  );
 
   if (row.kind === "choice") {
     return (
-      <box
-        key={row.id}
-        style={{
-          flexDirection: "row",
-          height: 1,
-          alignItems: "center",
-          paddingLeft: 1,
-          backgroundColor: focused ? palette.surfaceRaised : "transparent",
-        }}
-      >
-        {marker}
-        {labelBox}
+      <FieldRow key={row.id} focused={focused} label={row.label}>
         <box style={{ flexDirection: "row", flexGrow: 1, gap: 2, alignItems: "center" }}>
-          {row.choices.map((choice, choiceIndex) => {
-            const selected = choiceIndex === row.selectedIndex;
-            return (
-              <text key={choice}>
-                <span fg={selected ? palette.gold : palette.dimmer}>{selected ? "◉" : "○"} </span>
-                <span fg={selected ? palette.text : palette.dim}>{choice}</span>
-              </text>
-            );
-          })}
+          {row.choices.map((choice) => (
+            <text key={choice.label}>
+              <span fg={choice.selected ? palette.gold : palette.dimmer}>
+                {choice.selected ? "◉" : "○"}{" "}
+              </span>
+              <span fg={choice.selected ? palette.text : palette.dim}>{choice.label}</span>
+            </text>
+          ))}
         </box>
-      </box>
+      </FieldRow>
     );
   }
 
   if (row.kind === "input") {
     return (
-      <box
-        key={row.id}
-        style={{
-          flexDirection: "row",
-          height: 1,
-          alignItems: "center",
-          paddingLeft: 1,
-          backgroundColor: focused ? palette.surfaceRaised : "transparent",
-        }}
-      >
-        {marker}
-        {labelBox}
+      <FieldRow key={row.id} focused={focused} label={row.label}>
         {focused ? (
           <input
             focused
             width="60%"
             value={row.value}
-            placeholder={row.placeholder ?? ""}
+            placeholder={row.placeholder}
             onSubmit={onSubmitString((value) => {
-              row.onSubmit?.(value);
+              row.onSubmit(value);
               move(1);
             })}
             {...inputStyle}
           />
         ) : (
           <text fg={row.value.length > 0 ? palette.dim : palette.dimmer}>
-            {row.value.length > 0 ? row.value : (row.placeholder ?? "")}
+            {row.value.length > 0 ? row.value : row.placeholder}
           </text>
         )}
-      </box>
+      </FieldRow>
     );
   }
 
   const primary = row.tone !== "normal";
   return (
+    // The CTA lives in the value column: no duplicate label, no 16-char cap.
+    <FieldRow key={row.id} focused={focused} label="">
+      <text>
+        <span fg={primary ? palette.gold : focused ? palette.accentBright : palette.dim}>
+          ▶ {row.label}
+        </span>
+      </text>
+    </FieldRow>
+  );
+}
+
+/** The focus marker and label column every interactive row shares. */
+function FieldRow({
+  focused,
+  label,
+  children,
+}: {
+  readonly focused: boolean;
+  readonly label: string;
+  readonly children: ReactNode;
+}) {
+  return (
     <box
-      key={row.id}
       style={{
         flexDirection: "row",
         height: 1,
@@ -223,24 +219,13 @@ function renderRow(
         backgroundColor: focused ? palette.surfaceRaised : "transparent",
       }}
     >
-      {marker}
-      {/* The CTA lives in the value column: no duplicate label, no 16-char cap. */}
-      <box style={{ width: LABEL_COLUMN_WIDTH }} />
-      <text>
-        <span
-          fg={
-            focused
-              ? primary
-                ? palette.gold
-                : palette.accentBright
-              : primary
-                ? palette.gold
-                : palette.dim
-          }
-        >
-          ▶ {row.label}
-        </span>
-      </text>
+      <box style={{ width: 2 }}>
+        <text fg={focused ? palette.accent : "transparent"}>❯ </text>
+      </box>
+      <box style={{ width: LABEL_COLUMN_WIDTH }}>
+        <text fg={focused ? palette.accentBright : palette.dim}>{label}</text>
+      </box>
+      {children}
     </box>
   );
 }

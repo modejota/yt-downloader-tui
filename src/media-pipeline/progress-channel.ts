@@ -1,15 +1,26 @@
-/** A single-consumer async channel: push values or finish (optionally with a failure cause). */
+/** A single-consumer async channel bridging push-style callbacks to a pull-style async generator. */
 export type ProgressChannel<T> = {
   readonly push: (value: T) => void;
-  readonly finish: (cause?: unknown) => void;
+  /** Ends the stream normally once every queued value has been consumed. */
+  readonly close: () => void;
+  /** Ends the stream by throwing `cause` once every queued value has been consumed. */
+  readonly fail: (cause: unknown) => void;
   readonly stream: () => AsyncGenerator<T>;
 };
 
+type ChannelEnd =
+  | { readonly kind: "closed" }
+  | { readonly kind: "failed"; readonly cause: unknown };
+
 export function createProgressChannel<T>(): ProgressChannel<T> {
   const queued: T[] = [];
-  let failure: { readonly cause: unknown } | undefined;
-  let isFinished = false;
+  let end: ChannelEnd | undefined;
   let wake: (() => void) | undefined;
+
+  function settle(channelEnd: ChannelEnd): void {
+    end = channelEnd;
+    notify();
+  }
 
   function notify(): void {
     const current = wake;
@@ -22,24 +33,20 @@ export function createProgressChannel<T>(): ProgressChannel<T> {
       queued.push(value);
       notify();
     },
-    finish(cause?: unknown): void {
-      isFinished = true;
-      if (cause !== undefined) failure = { cause };
-      notify();
-    },
+    close: () => settle({ kind: "closed" }),
+    fail: (cause) => settle({ kind: "failed", cause }),
     async *stream(): AsyncGenerator<T> {
       while (true) {
-        const next = queued.shift();
-        if (next !== undefined) {
-          yield next;
+        if (queued.length > 0) {
+          yield* queued.splice(0);
           continue;
         }
-        if (isFinished) break;
+        if (end !== undefined) break;
         await new Promise<void>((resolve) => {
           wake = resolve;
         });
       }
-      if (failure !== undefined) throw failure.cause;
+      if (end.kind === "failed") throw end.cause;
     },
   };
 }

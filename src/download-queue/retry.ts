@@ -6,24 +6,21 @@ export type Delay = (milliseconds: number) => Promise<void>;
 export const realDelay: Delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-const MAX_ATTEMPTS = 4;
-const RETRY_DELAYS_MS: readonly number[] = [2000, 4000, 8000];
+/** One backoff wait between consecutive attempts: four attempts in total. */
+const RETRY_DELAYS_MS = [2000, 4000, 8000] as const;
 
-function isRetryableFailure(cause: unknown): cause is DomainError {
-  return cause instanceof DomainError && cause.kind === "network";
-}
-
+/** Runs `operation`, retrying network DomainErrors with exponential backoff; anything else fails fast. */
 export async function withNetworkRetry<Result>(
   operation: () => Promise<Result>,
   delay: Delay,
-  attempt = 1,
 ): Promise<Result> {
-  try {
-    return await operation();
-  } catch (cause) {
-    if (!isRetryableFailure(cause) || attempt >= MAX_ATTEMPTS) throw cause;
-    const waitMs = RETRY_DELAYS_MS[attempt - 1];
-    if (waitMs !== undefined) await delay(waitMs);
-    return withNetworkRetry(operation, delay, attempt + 1);
+  for (const waitMs of RETRY_DELAYS_MS) {
+    try {
+      return await operation();
+    } catch (cause) {
+      if (!(cause instanceof DomainError) || cause.kind !== "network") throw cause;
+    }
+    await delay(waitMs);
   }
+  return operation();
 }

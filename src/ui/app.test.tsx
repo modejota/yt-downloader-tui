@@ -4,7 +4,7 @@ import { act } from "react";
 
 import type { Defaults } from "@/domain/config";
 import { DEFAULT_SETTINGS } from "@/domain/config";
-import type { Playlist, Video } from "@/domain/media";
+import { createPlaylistId, createVideoId, type Playlist, type Video } from "@/domain/media";
 import type {
   ExtractionService,
   MediaPipeline,
@@ -18,7 +18,7 @@ import { AppFrame } from "@/ui/components/chrome";
 import { ServicesProvider, type Services } from "@/ui/services-context";
 
 const STUB_VIDEO: Video = {
-  id: "abc123" as Video["id"],
+  id: createVideoId("abc123"),
   title: "Test Video",
   channelName: "Test Channel",
   durationSeconds: 125,
@@ -29,12 +29,12 @@ const STUB_VIDEO: Video = {
 
 const STUB_VIDEO_2: Video = {
   ...STUB_VIDEO,
-  id: "def456" as Video["id"],
+  id: createVideoId("def456"),
   title: "Second Video",
 };
 
 const STUB_PLAYLIST: Playlist = {
-  id: "PL123" as Playlist["id"],
+  id: createPlaylistId("PL123"),
   title: "Test Playlist",
   videoCount: 2,
 };

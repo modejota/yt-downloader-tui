@@ -2,10 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, useState } from "react";
 
-import { Form, type FormRow } from "@/ui/components/form";
+import { Form, choicesOf, type FormRow } from "@/ui/components/form";
 
 function Harness() {
-  const [value, setValue] = useState(0);
+  const [value, setValue] = useState("A");
   const [submitted, setSubmitted] = useState(false);
   const rows: readonly FormRow[] = [
     { kind: "heading", label: "Section" },
@@ -13,9 +13,7 @@ function Harness() {
       kind: "choice",
       id: "one",
       label: "One",
-      choices: ["A", "B", "C"],
-      selectedIndex: value,
-      onChange: setValue,
+      choices: choicesOf(["A", "B", "C"], value, (letter) => letter, setValue),
     },
     {
       kind: "action",
@@ -56,20 +54,20 @@ describe("Form", () => {
 
     try {
       await setup.renderOnce();
-      let frame = await setup.waitForFrame((text) => text.includes("choice=0"));
+      let frame = await setup.waitForFrame((text) => text.includes("choice=A"));
       expect(frame).toContain("◉ A");
 
       await interact(() => setup.mockInput.pressArrow("right"));
-      frame = await setup.waitForFrame((text) => text.includes("choice=1"));
+      frame = await setup.waitForFrame((text) => text.includes("choice=B"));
       expect(frame).toContain("◉ B");
 
       await interact(() => setup.mockInput.pressArrow("right"));
       await interact(() => setup.mockInput.pressArrow("right")); // past C wraps back to A
-      frame = await setup.waitForFrame((text) => text.includes("choice=0"));
+      frame = await setup.waitForFrame((text) => text.includes("choice=A"));
       expect(frame).toContain("◉ A");
 
       await interact(() => setup.mockInput.pressArrow("left")); // before A wraps to C
-      frame = await setup.waitForFrame((text) => text.includes("choice=2"));
+      frame = await setup.waitForFrame((text) => text.includes("choice=C"));
       expect(frame).toContain("◉ C");
     } finally {
       setup.renderer.destroy();
@@ -81,7 +79,7 @@ describe("Form", () => {
 
     try {
       await setup.renderOnce();
-      await setup.waitForFrame((text) => text.includes("choice=0"));
+      await setup.waitForFrame((text) => text.includes("choice=A"));
 
       await interact(() => setup.mockInput.pressArrow("down"));
       await interact(() => setup.mockInput.pressEnter());
@@ -98,7 +96,7 @@ describe("Form", () => {
 
     try {
       await setup.renderOnce();
-      const frame = await setup.waitForFrame((text) => text.includes("choice=0"));
+      const frame = await setup.waitForFrame((text) => text.includes("choice=A"));
       expect(frame).toContain("A");
       expect(frame).toContain("B");
       expect(frame).toContain("C");

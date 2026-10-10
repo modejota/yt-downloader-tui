@@ -3,6 +3,7 @@ import { testRender } from "@opentui/react/test-utils";
 
 import type { Defaults } from "@/domain/config";
 import { DEFAULT_SETTINGS } from "@/domain/config";
+import { createVideoId } from "@/domain/media";
 import type { DownloadJob } from "@/domain/queue";
 import type { ExtractionService, MediaPipeline } from "@/domain/ports";
 import type { DownloadQueue } from "@/download-queue/queue";
@@ -56,9 +57,10 @@ function fakeServices(): Services {
 }
 
 const STUB_JOB: DownloadJob = {
+  // SAFETY: test fixture; the id brand only marks provenance and carries no runtime invariant.
   id: "job-1" as DownloadJob["id"],
   video: {
-    id: "abc123" as DownloadJob["video"]["id"],
+    id: createVideoId("abc123"),
     title: "Downloading Video",
     channelName: "Test Channel",
     durationSeconds: 125,
